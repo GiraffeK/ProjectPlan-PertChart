@@ -71,9 +71,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   };
 
   return (
-    <header className="flex items-center justify-between px-6 py-2.5 bg-slate-900 text-white shadow-md z-30 select-none border-b border-slate-800">
+    <header className="flex items-center justify-between px-4 lg:px-6 py-2 bg-slate-900 text-white shadow-md z-30 select-none border-b border-slate-800 shrink-0 w-full overflow-x-auto min-w-0">
       {/* Left: Branding & View Tabs */}
-      <div className="flex items-center space-x-6">
+      <div className="flex items-center space-x-4 lg:space-x-5 shrink-0">
         <div className="flex items-center space-x-2.5">
           <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-md">
             <Network size={18} className="text-white" />
@@ -92,7 +92,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 onChange={e => onChangeProjectName(e.target.value)}
                 placeholder="專案名稱"
                 title="點擊修改專案名稱"
-                className="bg-transparent text-xs font-semibold text-slate-200 focus:text-white focus:outline-none w-24 md:w-32 lg:w-44 placeholder-slate-500 truncate"
+                className="bg-transparent text-xs font-semibold text-slate-200 focus:text-white focus:outline-none w-32 md:w-36 placeholder-slate-500 truncate"
               />
             </div>
           </div>
@@ -148,7 +148,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       </div>
 
       {/* Center: Cycle Alert, Project Start Date & Critical Path Badge */}
-      <div className="flex items-center space-x-3">
+      <div className="flex items-center space-x-3 shrink-0">
         {hasCycle ? (
           <div className="flex items-center space-x-1.5 px-3 py-1 bg-red-500/20 border border-red-500/50 rounded-lg text-xs text-red-300 font-medium animate-pulse">
             <AlertOctagon size={15} className="text-red-400" />
@@ -176,12 +176,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       </div>
 
       {/* Right: Actions */}
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center space-x-2 shrink-0">
         {/* Save Button (Manual Save to original file) */}
         <button
           onClick={onSave}
           title={`手動儲存至原檔「${projectName}」 (快捷鍵 Ctrl + S)`}
-          className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+          className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer shrink-0"
         >
           <Save size={14} />
           <span>儲存</span>
@@ -192,32 +192,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <button
             onClick={onSaveAs}
             title="專案另存新檔 (以新名稱或下載備份)"
-            className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer border border-slate-600"
+            className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer border border-slate-600 shrink-0"
           >
             <FolderPlus size={14} />
             <span>另存新檔</span>
           </button>
         )}
 
-        {/* Autosave Status Badge */}
-        <div className="hidden lg:flex items-center text-[11px] font-mono pr-1">
+        {/* Autosave Status Badge: Fixed width to prevent any jumping or layout shifts */}
+        <div
+          className="flex items-center justify-center text-[11px] font-mono px-2 py-1 rounded bg-slate-800/80 border border-slate-700/80 w-[96px] shrink-0 select-none cursor-default"
+          title={
+            isDirty
+              ? `變更將自動備份至 [${projectName}_autosave]`
+              : `已自動儲存至 [${projectName}_autosave] ${lastSavedTime ? `(${lastSavedTime})` : ''}\n點擊「儲存」按鈕可存至原檔「${projectName}」`
+          }
+        >
           {isDirty ? (
-            <span
-              className="flex items-center space-x-1 text-amber-400"
-              title={`變更自動備份至 [${projectName}_autosave]`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              <span>自動儲存中...</span>
+            <span className="flex items-center space-x-1.5 text-amber-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+              <span className="whitespace-nowrap">存檔中...</span>
             </span>
           ) : (
-            <span
-              className="flex items-center space-x-1 text-emerald-400/90"
-              title={`已自動儲存至 [${projectName}_autosave]`}
-            >
-              <Check size={13} className="text-emerald-400" />
-              <span>
-                已自動存檔 [{projectName}_autosave] {lastSavedTime ? `(${lastSavedTime})` : ''}
-              </span>
+            <span className="flex items-center space-x-1.5 text-emerald-400/90">
+              <Check size={13} className="text-emerald-400 shrink-0" />
+              <span className="whitespace-nowrap">已自動存檔</span>
             </span>
           )}
         </div>
