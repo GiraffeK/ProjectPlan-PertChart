@@ -3,7 +3,7 @@ import type { Task, ProjectData } from './core/types';
 import { calculateCPM } from './core/cpmEngine';
 import { SAMPLE_PROJECT_TASKS } from './data/sampleProject';
 import { exportToMSProjectXML, parseMSProjectXML } from './core/msProject';
-import { PertChart } from './components/PertChart';
+import { PertChart, type NodePosition } from './components/PertChart';
 import { GanttChart } from './components/GanttChart';
 import { TaskTable } from './components/TaskTable';
 import { Toolbar, type ViewMode } from './components/Toolbar';
@@ -28,16 +28,30 @@ const DEFAULT_INITIAL_TASK: Task[] = [
 const STORAGE_KEY = 'pertchart_project_data';
 const STORAGE_TIME_KEY = 'pertchart_project_last_saved';
 
-const loadInitialProject = (): { tasks: Task[]; projectName: string; startDate: string } => {
+interface InitialProjectState {
+  tasks: Task[];
+  projectName: string;
+  startDate: string;
+  pertTransform?: { x: number; y: number; scale: number };
+}
+
+const loadInitialProject = (): InitialProjectState => {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed.tasks) && parsed.tasks.length > 0) {
+        const posRecord = parsed.pertPositions || {};
+        const loadedTasks = parsed.tasks.map((t: Task) => ({
+          ...t,
+          x: t.x !== undefined ? t.x : posRecord[t.id]?.x,
+          y: t.y !== undefined ? t.y : posRecord[t.id]?.y,
+        }));
         return {
-          tasks: parsed.tasks,
+          tasks: loadedTasks,
           projectName: parsed.projectName || 'My Project',
           startDate: parsed.startDate || new Date().toISOString().split('T')[0],
+          pertTransform: parsed.pertTransform,
         };
       }
     }
@@ -56,6 +70,36 @@ export function App() {
   const [tasks, setTasks] = useState<Task[]>(initialData.tasks);
   const [projectName, setProjectName] = useState<string>(initialData.projectName);
   const [startDate, setStartDate] = useState<string>(initialData.startDate);
+  const [initialPertTransform, setInitialPertTransform] = useState<{ x: number; y: number; scale: number } | undefined>(
+    () => initialData.pertTransform
+  );
+
+  const pertPositionsRef = useRef<Map<string, NodePosition>>(
+    (() => {
+      const map = new Map<string, NodePosition>();
+      initialData.tasks.forEach(t => {
+        if (t.x !== undefined && t.y !== undefined) {
+          map.set(t.id, { x: t.x, y: t.y, width: 190, height: 80 });
+        }
+      });
+      return map;
+    })()
+  );
+  const pertTransformRef = useRef<{ x: number; y: number; scale: number }>(
+    initialData.pertTransform || { x: 80, y: 80, scale: 0.85 }
+  );
+
+  const getTasksWithPositions = (currentTasks: Task[]): Task[] => {
+    const posMap = pertPositionsRef.current;
+    return currentTasks.map(t => {
+      const pos = posMap.get(t.id);
+      if (pos) {
+        return { ...t, x: pos.x, y: pos.y };
+      }
+      return t;
+    });
+  };
+
   const [viewMode, setViewMode] = useState<ViewMode>('pert');
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(() => {
     return localStorage.getItem(STORAGE_TIME_KEY) || null;
@@ -157,10 +201,17 @@ export function App() {
   // - autosave writes to [projectName]_autosave: pertchart_project_${projectName}_autosave
   const handleSaveProject = (manual: boolean = true) => {
     try {
+      const enrichedTasks = getTasksWithPositions(tasks);
+      const pertPositions: Record<string, { x: number; y: number }> = {};
+      pertPositionsRef.current.forEach((val, key) => {
+        pertPositions[key] = { x: val.x, y: val.y };
+      });
       const data = {
         projectName,
         startDate,
-        tasks,
+        tasks: enrichedTasks,
+        pertTransform: pertTransformRef.current,
+        pertPositions,
       };
       const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -184,10 +235,17 @@ export function App() {
     try {
       const trimmed = newName.trim();
       setProjectName(trimmed);
+      const enrichedTasks = getTasksWithPositions(tasks);
+      const pertPositions: Record<string, { x: number; y: number }> = {};
+      pertPositionsRef.current.forEach((val, key) => {
+        pertPositions[key] = { x: val.x, y: val.y };
+      });
       const data = {
         projectName: trimmed,
         startDate,
-        tasks,
+        tasks: enrichedTasks,
+        pertTransform: pertTransformRef.current,
+        pertPositions,
       };
       const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       localStorage.setItem(`pertchart_project_${trimmed}`, JSON.stringify(data));
@@ -196,9 +254,10 @@ export function App() {
       setLastSavedTime(nowStr);
       setIsDirty(false);
 
-      const baseName = trimmed.toLowerCase().replace(/\s+/g, '_');
-      const xmlFilename = `${baseName}_msproject.xml`;
-      const jsonFilename = `${baseName}_backup.json`;
+      const cleanName = trimmed.replace(/\.(json|xml)$/i, '').trim();
+      const baseName = cleanName.toLowerCase().replace(/\s+/g, '_');
+      const xmlFilename = `${baseName}.xml`;
+      const jsonFilename = `${baseName}.json`;
 
       if (exportType === 'xml') {
         const projectData: ProjectData = {
@@ -534,6 +593,7 @@ export function App() {
 
   // Persist node dragged positions
   const handleUpdateTaskPosition = (taskId: string, x: number, y: number) => {
+    pertPositionsRef.current.set(taskId, { x, y, width: 190, height: 80 });
     setTasks(prev =>
       prev.map(t => (t.id === taskId ? { ...t, x, y } : t))
     );
@@ -806,7 +866,8 @@ export function App() {
       criticalPathTaskIds: cpmResult.criticalPathTaskIds,
     };
     const xmlContent = exportToMSProjectXML(projectData);
-    const xmlFilename = `${projectName.toLowerCase().replace(/\s+/g, '_')}_msproject.xml`;
+    const cleanProjectName = projectName.replace(/\.xml$/i, '').trim();
+    const xmlFilename = `${cleanProjectName.toLowerCase().replace(/\s+/g, '_')}.xml`;
 
     if ('showSaveFilePicker' in window) {
       try {
@@ -868,6 +929,7 @@ export function App() {
           if (data.startDate) {
             setStartDate(data.startDate);
           }
+          pertPositionsRef.current.clear();
           setTasks(data.tasks);
           showToast(
             `🎉 成功直接匯入 .mpp 專案「${data.projectName}」，共 ${data.tasks.length} 個任務！`,
@@ -889,9 +951,32 @@ export function App() {
         try {
           const data = JSON.parse(e.target?.result as string);
           if (data.tasks && Array.isArray(data.tasks)) {
+            pushHistory();
             setProjectName(data.projectName || 'Imported Project');
             if (data.startDate) setStartDate(data.startDate);
-            setTasks(data.tasks);
+
+            const posRecord = data.pertPositions || {};
+            const restoredTasks: Task[] = data.tasks.map((t: any) => ({
+              ...t,
+              x: t.x !== undefined ? t.x : posRecord[t.id]?.x,
+              y: t.y !== undefined ? t.y : posRecord[t.id]?.y,
+            }));
+
+            // Clear and repopulate pertPositionsRef immediately
+            const newPosMap = new Map<string, NodePosition>();
+            restoredTasks.forEach(t => {
+              if (t.x !== undefined && t.y !== undefined) {
+                newPosMap.set(t.id, { x: t.x, y: t.y, width: 190, height: 80 });
+              }
+            });
+            pertPositionsRef.current = newPosMap;
+
+            if (data.pertTransform) {
+              pertTransformRef.current = data.pertTransform;
+              setInitialPertTransform({ ...data.pertTransform });
+            }
+
+            setTasks(restoredTasks);
             showToast(`成功匯入專案備份檔「${data.projectName || file.name}」，共 ${data.tasks.length} 個任務！`, 'success');
           } else {
             showToast('JSON 備份檔案格式無效（缺少 tasks 陣列）', 'error');
@@ -914,8 +999,10 @@ export function App() {
           showToast('檔案中未找到有效任務資料', 'error');
           return;
         }
+        pushHistory();
         setProjectName(imported.projectName);
         setStartDate(imported.startDate);
+        pertPositionsRef.current.clear();
         setTasks(imported.tasks);
         showToast(
           `成功匯入 Microsoft Project 專案「${imported.projectName}」，共 ${imported.tasks.length} 個任務！`,
@@ -930,13 +1017,21 @@ export function App() {
 
   // Export JSON Backup (supports choosing save directory)
   const handleExportJSON = async () => {
+    const enrichedTasks = getTasksWithPositions(tasks);
+    const pertPositions: Record<string, { x: number; y: number }> = {};
+    pertPositionsRef.current.forEach((val, key) => {
+      pertPositions[key] = { x: val.x, y: val.y };
+    });
     const backup = {
       projectName,
       startDate,
-      tasks,
+      tasks: enrichedTasks,
+      pertTransform: pertTransformRef.current,
+      pertPositions,
     };
     const jsonContent = JSON.stringify(backup, null, 2);
-    const jsonFilename = `${projectName.toLowerCase().replace(/\s+/g, '_')}_backup.json`;
+    const cleanProjectName = projectName.replace(/\.json$/i, '').trim();
+    const jsonFilename = `${cleanProjectName.toLowerCase().replace(/\s+/g, '_')}.json`;
 
     if ('showSaveFilePicker' in window) {
       try {
@@ -977,9 +1072,11 @@ export function App() {
   // Reload Sample
   const handleLoadSample = () => {
     pushHistory();
+    pertPositionsRef.current.clear();
     setTasks(SAMPLE_PROJECT_TASKS);
     setProjectName('Software Development Project');
     setStartDate('2000-02-01');
+    setInitialPertTransform({ x: 80, y: 80, scale: 0.85 });
     showToast('已重新載入 88 天軟體開發專案參考範例！', 'info');
   };
 
@@ -1043,6 +1140,13 @@ export function App() {
             onRemoveDependency={handleRemoveDependency}
             onCreateTaskAt={handleCreateTaskAt}
             onUpdateTaskPosition={handleUpdateTaskPosition}
+            onPositionsChange={posMap => {
+              pertPositionsRef.current = posMap;
+            }}
+            onTransformChange={tf => {
+              pertTransformRef.current = tf;
+            }}
+            initialTransform={initialPertTransform}
             onIndentTask={handleIndentTask}
             onOutdentTask={handleOutdentTask}
             onDeleteTask={handleDeleteTask}
@@ -1100,6 +1204,13 @@ export function App() {
                 onRemoveDependency={handleRemoveDependency}
                 onCreateTaskAt={handleCreateTaskAt}
                 onUpdateTaskPosition={handleUpdateTaskPosition}
+                onPositionsChange={posMap => {
+                  pertPositionsRef.current = posMap;
+                }}
+                onTransformChange={tf => {
+                  pertTransformRef.current = tf;
+                }}
+                initialTransform={initialPertTransform}
                 onIndentTask={handleIndentTask}
                 onOutdentTask={handleOutdentTask}
                 onDeleteTask={handleDeleteTask}

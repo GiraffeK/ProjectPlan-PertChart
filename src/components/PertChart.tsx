@@ -14,6 +14,13 @@ import {
   Indent,
 } from 'lucide-react';
 
+export interface NodePosition {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface PertChartProps {
   tasks: Task[];
   criticalPathDuration: number;
@@ -26,16 +33,12 @@ interface PertChartProps {
   onRemoveDependency?: (fromId: string, toId: string) => void;
   onCreateTaskAt?: (pos: { x: number; y: number }, predecessorId?: string) => void;
   onUpdateTaskPosition?: (taskId: string, x: number, y: number) => void;
+  onPositionsChange?: (positions: Map<string, NodePosition>) => void;
+  onTransformChange?: (transform: { x: number; y: number; scale: number }) => void;
+  initialTransform?: { x: number; y: number; scale: number };
   onIndentTask?: (task: Task) => void;
   onOutdentTask?: (task: Task) => void;
   onDeleteTask?: (taskId: string) => void;
-}
-
-interface NodePosition {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
 }
 
 const NODE_WIDTH = 190;
@@ -53,13 +56,37 @@ export const PertChart: React.FC<PertChartProps> = ({
   onRemoveDependency,
   onCreateTaskAt,
   onUpdateTaskPosition,
+  onPositionsChange,
+  onTransformChange,
+  initialTransform,
   onIndentTask,
   onOutdentTask,
   onDeleteTask,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map());
-  const [transform, setTransform] = useState({ x: 80, y: 80, scale: 0.85 });
+  const [transform, setTransform] = useState<{ x: number; y: number; scale: number }>(() =>
+    initialTransform || { x: 80, y: 80, scale: 0.85 }
+  );
+
+  useEffect(() => {
+    if (initialTransform) {
+      setTransform(prev => {
+        if (
+          prev.x === initialTransform.x &&
+          prev.y === initialTransform.y &&
+          prev.scale === initialTransform.scale
+        ) {
+          return prev;
+        }
+        return initialTransform;
+      });
+    }
+  }, [initialTransform]);
+
+  useEffect(() => {
+    onTransformChange?.(transform);
+  }, [transform, onTransformChange]);
   const [isPanning, setIsPanning] = useState(false);
   const [startPan, setStartPan] = useState({ x: 0, y: 0 });
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
@@ -167,7 +194,8 @@ export const PertChart: React.FC<PertChartProps> = ({
     dagre.layout(g);
 
     setPositions(prev => {
-      const newPos = new Map(prev);
+      const currentTaskIds = new Set(tasks.map(t => t.id));
+      const newPos = new Map<string, NodePosition>();
       g.nodes().forEach(nodeId => {
         const node = g.node(nodeId);
         const task = taskMap.get(nodeId);
@@ -178,17 +206,18 @@ export const PertChart: React.FC<PertChartProps> = ({
             width: NODE_WIDTH,
             height: NODE_HEIGHT,
           });
-        } else if (!forceAll && prev.has(nodeId)) {
-          // Keep current dragged position
+        } else if (!forceAll && currentTaskIds.has(nodeId) && prev.has(nodeId)) {
+          newPos.set(nodeId, prev.get(nodeId)!);
         } else if (node) {
           newPos.set(nodeId, {
-            x: node.x - NODE_WIDTH / 2,
-            y: node.y - NODE_HEIGHT / 2,
+            x: Math.round(node.x - NODE_WIDTH / 2),
+            y: Math.round(node.y - NODE_HEIGHT / 2),
             width: NODE_WIDTH,
             height: NODE_HEIGHT,
           });
         }
       });
+      onPositionsChange?.(newPos);
       return newPos;
     });
   };
@@ -312,6 +341,7 @@ export const PertChart: React.FC<PertChartProps> = ({
         if (finalPos && onUpdateTaskPosition) {
           onUpdateTaskPosition(taskId, finalPos.x, finalPos.y);
         }
+        onPositionsChange?.(positionsRef.current);
       }
       setDraggingTaskId(null);
       draggingTaskIdRef.current = null;
@@ -327,7 +357,7 @@ export const PertChart: React.FC<PertChartProps> = ({
       window.removeEventListener('mousemove', onWindowMouseMove);
       window.removeEventListener('mouseup', onWindowMouseUp);
     };
-  }, [draggingTaskId, onUpdateTaskPosition]);
+  }, [draggingTaskId, onUpdateTaskPosition, onPositionsChange]);
 
   const handleMouseMove = (e: React.MouseEvent) => {
     // 1. If dragging connection line from center

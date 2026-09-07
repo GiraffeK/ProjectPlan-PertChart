@@ -21,7 +21,7 @@ export const SaveAsModal: React.FC<SaveAsModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      setNewName(`${currentProjectName}_copy`);
+      setNewName(currentProjectName);
       setExportOption('none');
       setSelectedDir(null);
       setDirNotice(null);
