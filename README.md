@@ -30,10 +30,14 @@
 ### 4. 雙視圖並列模式 (Split View)
 - 上下分割同屏呈現 PERT 網圖與 Gantt 甘特圖，兩者共享相同狀態，任何修改立即同步反應。
 
-### 5. Microsoft Project (MSPDI XML) 深度相容
-- **匯入 MS Project XML**：支援載入由 Microsoft Project 匯出的標準 XML 檔（包含任務名稱、工期、開始/結束時間、前置任務 `<PredecessorLink>` 關係）。
-- **匯出 MS Project XML**：一鍵將當前排程匯出為符合微軟官方 Schema 的標準 XML 格式，可在 Microsoft Project、ProjectLibre 或 GanttProject 中直接開啟。
-- **備份匯出**：支援 JSON 格式專案備份。
+### 5. Microsoft Project 相容性與 .mpp 格式支援
+- **匯出 MS Project XML**：一鍵將當前排程匯出為符合微軟官方 Schema 的標準 XML 格式，可在 Microsoft Project、ProjectLibre 或 GanttProject 中直接無損開啟。
+- **匯入 MS Project 專案**：支援直接載入微軟標準 XML 專案檔（包含任務名稱、工期、開始/結束時間、前置任務 `<PredecessorLink>` 關係）。
+- **`.mpp` 格式處理指引**：
+  - 微軟官方 `.mpp` 為封閉二進位格式，微軟推薦的無損資料交換標準為 **XML 格式**。
+  - 在 Microsoft Project 中只需：**「檔案」➔「另存新檔」(Save As) ➔ 存檔類型選擇「XML 格式 (*.xml)」**，存檔後即可直接匯入本系統。
+  - 系統內建 `.mpp` 檔案攔截指引彈窗與操作教學，若直接上傳 `.mpp` 亦會主動提示轉換方式。
+- **備份匯出**：支援 JSON 格式專案完整備份。
 
 ---
 

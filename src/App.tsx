@@ -8,6 +8,7 @@ import { GanttChart } from './components/GanttChart';
 import { TaskTable } from './components/TaskTable';
 import { Toolbar, type ViewMode } from './components/Toolbar';
 import { TaskModal } from './components/TaskModal';
+import { MppGuideModal } from './components/MppGuideModal';
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 
 const DEFAULT_INITIAL_TASK: Task[] = [
@@ -31,6 +32,7 @@ export function App() {
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isMppGuideOpen, setIsMppGuideOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [pendingTaskPos, setPendingTaskPos] = useState<{ x: number; y: number } | null>(null);
   const [pendingPredecessors, setPendingPredecessors] = useState<string[]>([]);
@@ -166,8 +168,14 @@ export function App() {
     showToast('已成功匯出 Microsoft Project XML 檔案！', 'success');
   };
 
-  // Import Microsoft Project XML
+  // Import Microsoft Project XML or MPP
   const handleImportMSProject = (file: File) => {
+    if (file.name.toLowerCase().endsWith('.mpp')) {
+      setIsMppGuideOpen(true);
+      showToast('檢測到 .mpp 檔案，請依指引在 MS Project 另存為 XML 格式後匯入！', 'info');
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = e => {
       const content = e.target?.result as string;
@@ -235,6 +243,7 @@ export function App() {
         onExportMSProject={handleExportMSProject}
         onImportMSProject={handleImportMSProject}
         onExportJSON={handleExportJSON}
+        onOpenMppGuide={() => setIsMppGuideOpen(true)}
         startDate={startDate}
         onChangeStartDate={setStartDate}
         criticalPathDuration={cpmResult.criticalPathDuration}
@@ -353,6 +362,12 @@ export function App() {
         initialTask={editingTask}
         existingTasks={tasks}
         defaultPredecessors={pendingPredecessors}
+      />
+
+      {/* MPP Guide Modal */}
+      <MppGuideModal
+        isOpen={isMppGuideOpen}
+        onClose={() => setIsMppGuideOpen(false)}
       />
 
       {/* Toast Floating Notification */}

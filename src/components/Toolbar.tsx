@@ -11,6 +11,7 @@ import {
   Sparkles,
   Calendar,
   AlertOctagon,
+  HelpCircle,
 } from 'lucide-react';
 
 export type ViewMode = 'pert' | 'gantt' | 'split' | 'table';
@@ -23,6 +24,7 @@ interface ToolbarProps {
   onExportMSProject: () => void;
   onImportMSProject: (file: File) => void;
   onExportJSON: () => void;
+  onOpenMppGuide?: () => void;
   startDate: string;
   onChangeStartDate: (date: string) => void;
   criticalPathDuration: number;
@@ -37,6 +39,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onExportMSProject,
   onImportMSProject,
   onExportJSON,
+  onOpenMppGuide,
   startDate,
   onChangeStartDate,
   criticalPathDuration,
@@ -173,20 +176,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <input
           type="file"
           ref={fileInputRef}
-          accept=".xml,.mpx,.mspdi"
+          accept=".xml,.mpx,.mspdi,.mpp"
           onChange={handleFileChange}
           className="hidden"
         />
 
-        {/* Import MS Project XML */}
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          title="匯入 Microsoft Project XML 檔案"
-          className="flex items-center space-x-1 px-2.5 py-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors border border-slate-700"
-        >
-          <FileUp size={13} />
-          <span>匯入 MS Project</span>
-        </button>
+        {/* Import MS Project Button & MPP Help */}
+        <div className="flex items-center space-x-1">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            title="匯入 Microsoft Project 檔案 (支援 .xml / .mpp 指引)"
+            className="flex items-center space-x-1 px-2.5 py-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors border border-slate-700"
+          >
+            <FileUp size={13} />
+            <span>匯入 MS Project</span>
+          </button>
+          {onOpenMppGuide && (
+            <button
+              onClick={onOpenMppGuide}
+              title="MPP 檔案匯入說明"
+              className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded-lg transition-colors"
+            >
+              <HelpCircle size={14} />
+            </button>
+          )}
+        </div>
 
         {/* Export MS Project XML */}
         <button
