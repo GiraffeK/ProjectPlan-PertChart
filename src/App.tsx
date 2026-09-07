@@ -171,8 +171,62 @@ export function App() {
   // Import Microsoft Project XML or MPP
   const handleImportMSProject = (file: File) => {
     if (file.name.toLowerCase().endsWith('.mpp')) {
-      setIsMppGuideOpen(true);
-      showToast('檢測到 .mpp 檔案，請依指引在 MS Project 另存為 XML 格式後匯入！', 'info');
+      showToast('正在透過解析引擎讀取 .mpp 檔案，請稍候...', 'info');
+      fetch('/api/parse-mpp', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+        },
+        body: file,
+      })
+        .then(async res => {
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `HTTP ${res.status}`);
+          }
+          return res.json();
+        })
+        .then(data => {
+          if (!data.tasks || data.tasks.length === 0) {
+            throw new Error('未能從該 .mpp 檔案解析出有效任務。');
+          }
+          setProjectName(data.projectName || 'Imported Project');
+          if (data.startDate) {
+            setStartDate(data.startDate);
+          }
+          setTasks(data.tasks);
+          showToast(
+            `🎉 成功直接匯入 .mpp 專案「${data.projectName}」，共 ${data.tasks.length} 個任務！`,
+            'success'
+          );
+        })
+        .catch(err => {
+          console.warn('Direct MPP parse error:', err);
+          setIsMppGuideOpen(true);
+          showToast(`無法直接解析此 .mpp 格式（${err.message || '格式限制'}），已為您開啟轉換指引！`, 'info');
+        });
+      return;
+    }
+
+    // Import JSON backup
+    if (file.name.toLowerCase().endsWith('.json')) {
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const data = JSON.parse(e.target?.result as string);
+          if (data.tasks && Array.isArray(data.tasks)) {
+            setProjectName(data.projectName || 'Imported Project');
+            if (data.startDate) setStartDate(data.startDate);
+            setTasks(data.tasks);
+            showToast(`成功匯入專案備份檔「${data.projectName || file.name}」，共 ${data.tasks.length} 個任務！`, 'success');
+          } else {
+            showToast('JSON 備份檔案格式無效（缺少 tasks 陣列）', 'error');
+          }
+        } catch (err: any) {
+          showToast('解析 JSON 備份檔失敗：' + err.message, 'error');
+        }
+      };
+      reader.readAsText(file);
       return;
     }
 

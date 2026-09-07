@@ -176,7 +176,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <input
           type="file"
           ref={fileInputRef}
-          accept=".xml,.mpx,.mspdi,.mpp"
+          accept=".xml,.mpx,.mspdi,.mpp,.json"
           onChange={handleFileChange}
           className="hidden"
         />
@@ -185,7 +185,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div className="flex items-center space-x-1">
           <button
             onClick={() => fileInputRef.current?.click()}
-            title="匯入 Microsoft Project 檔案 (支援 .xml / .mpp 指引)"
+            title="匯入 Microsoft Project 檔案 (支援 .mpp / .xml / .json)"
             className="flex items-center space-x-1 px-2.5 py-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors border border-slate-700"
           >
             <FileUp size={13} />

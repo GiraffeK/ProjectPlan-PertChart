@@ -41,9 +41,9 @@ export const MppGuideModal: React.FC<MppGuideModalProps> = ({ isOpen, onClose })
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start space-x-3 text-xs text-amber-900">
             <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
             <div className="space-y-1">
-              <span className="font-bold">為什麼需要 XML 格式？</span>
+              <span className="font-bold">.mpp 格式相容性說明</span>
               <p className="text-amber-800 leading-relaxed">
-                <code>.mpp</code> 是微軟的封閉式二進位檔案格式，微軟官方為了讓第三方軟體能夠完整讀取與相容，特別設計了標準的 <b>XML Format (*.xml)</b> 進行無損資料交換。
+                本系統已內建自動解析引擎嘗試直接讀取 <code>.mpp</code> 檔案。若您的檔案版本特殊、為舊版二進位或直接解析失敗，建議依微軟官方建議的 <b>3 步驟另存為標準 XML (*.xml)</b> 格式，即可 100% 完整無損載入！
               </p>
             </div>
           </div>
