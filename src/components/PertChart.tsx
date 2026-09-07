@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { Task } from '../core/types';
-import { formatDateForDisplay } from '../core/cpmEngine';
+import { formatDateForDisplay, formatDays, getParentBadgeLabel } from '../core/cpmEngine';
 import dagre from 'dagre';
 import { TaskContextMenu } from './TaskContextMenu';
 import {
@@ -10,6 +10,8 @@ import {
   Layers,
   SquareDashed,
   RefreshCw,
+  Trash2,
+  Indent,
 } from 'lucide-react';
 
 interface PertChartProps {
@@ -17,8 +19,11 @@ interface PertChartProps {
   criticalPathDuration: number;
   criticalPathTaskIds: string[];
   criticalEdges: Array<{ from: string; to: string }>;
+  selectedTaskIds?: Set<string>;
+  onSelectTaskIds?: (taskIds: Set<string>) => void;
   onSelectTask: (task: Task) => void;
   onAddDependency?: (fromId: string, toId: string) => void;
+  onRemoveDependency?: (fromId: string, toId: string) => void;
   onCreateTaskAt?: (pos: { x: number; y: number }, predecessorId?: string) => void;
   onUpdateTaskPosition?: (taskId: string, x: number, y: number) => void;
   onIndentTask?: (task: Task) => void;
@@ -41,8 +46,11 @@ export const PertChart: React.FC<PertChartProps> = ({
   criticalPathDuration,
   criticalPathTaskIds,
   criticalEdges,
+  selectedTaskIds,
+  onSelectTaskIds,
   onSelectTask,
   onAddDependency,
+  onRemoveDependency,
   onCreateTaskAt,
   onUpdateTaskPosition,
   onIndentTask,
@@ -61,6 +69,12 @@ export const PertChart: React.FC<PertChartProps> = ({
     task: Task;
     x: number;
     y: number;
+  } | null>(null);
+
+  // Modal state for confirming deletion of predecessor dependency edge
+  const [deleteEdgeModal, setDeleteEdgeModal] = useState<{
+    fromId: string;
+    toId: string;
   } | null>(null);
 
   // Synchronized refs for latency-free window mouse tracking
@@ -92,6 +106,21 @@ export const PertChart: React.FC<PertChartProps> = ({
     criticalEdges.forEach(e => set.add(`${e.from}->${e.to}`));
     return set;
   }, [criticalEdges]);
+
+  // Identify all subtasks belonging to any currently selected parent tasks
+  const selectedParentSubtaskIds = useMemo(() => {
+    const subIds = new Set<string>();
+    if (!selectedTaskIds || selectedTaskIds.size === 0) return subIds;
+
+    tasks.forEach(t => {
+      if (selectedTaskIds.has(t.id) && t.isSummary) {
+        (t.childrenIds || []).forEach(cId => subIds.add(cId));
+        (t.subtaskIds || []).forEach(dId => subIds.add(dId));
+      }
+    });
+
+    return subIds;
+  }, [selectedTaskIds, tasks]);
 
   // MS Project Center-drag connection state
   const [connectionDrag, setConnectionDrag] = useState<{
@@ -202,10 +231,26 @@ export const PertChart: React.FC<PertChartProps> = ({
     };
   };
 
-  // Handle border mouse down (MS Project: Drag perimeter to move node)
+  // Handle border mouse down (MS Project: Drag perimeter to move node, Click to select)
   const handleBorderMouseDown = (e: React.MouseEvent, taskId: string) => {
     if (e.button !== 0) return;
     e.stopPropagation();
+
+    // Select the task immediately upon clicking/pressing border
+    if (onSelectTaskIds) {
+      if (e.ctrlKey || e.metaKey) {
+        const next = new Set(selectedTaskIds || []);
+        if (next.has(taskId)) {
+          next.delete(taskId);
+        } else {
+          next.add(taskId);
+        }
+        onSelectTaskIds(next);
+      } else {
+        onSelectTaskIds(new Set([taskId]));
+      }
+    }
+
     const pos = positions.get(taskId);
     if (pos) {
       setDraggingTaskId(taskId);
@@ -342,9 +387,12 @@ export const PertChart: React.FC<PertChartProps> = ({
           }
         }
       } else {
-        // Was a simple click on the center! Open edit modal
+        // Was a simple click on the center! Open edit modal and update selection
         const task = taskMap.get(pressInfo.fromId);
         if (task) {
+          if (onSelectTaskIds) {
+            onSelectTaskIds(new Set([task.id]));
+          }
           onSelectTask(task);
         }
       }
@@ -448,15 +496,25 @@ export const PertChart: React.FC<PertChartProps> = ({
         const pathData = `M ${startX} ${startY} C ${startX + dx} ${startY}, ${endX - dx} ${endY}, ${endX} ${endY}`;
 
         edges.push(
-          <g key={edgeKey}>
-            {/* Wider transparent stroke for easier hover / click */}
+          <g
+            key={edgeKey}
+            className="cursor-pointer group/edge"
+            onDoubleClick={e => {
+              e.stopPropagation();
+              setDeleteEdgeModal({ fromId: predId, toId: task.id });
+            }}
+          >
+            {/* Wider transparent stroke for easier hover / click / double-click */}
             <path
               d={pathData}
               fill="none"
               stroke="transparent"
-              strokeWidth="16"
+              strokeWidth="20"
+              style={{ pointerEvents: 'stroke' }}
               className="cursor-pointer"
-            />
+            >
+              <title>{`流程連線：[${predId}] ➔ [${task.id}]\n👉 雙擊 (Double Click) 可刪除此前置依賴關聯`}</title>
+            </path>
             {/* Visible Line */}
             <path
               d={pathData}
@@ -465,7 +523,8 @@ export const PertChart: React.FC<PertChartProps> = ({
               strokeWidth={isCritical ? 3.5 : 1.8}
               strokeDasharray={isCritical ? 'none' : 'none'}
               markerEnd={isCritical ? 'url(#arrow-critical)' : 'url(#arrow-normal)'}
-              className="transition-colors duration-200"
+              style={{ pointerEvents: 'stroke' }}
+              className="transition-all duration-150 group-hover/edge:stroke-blue-600 group-hover/edge:stroke-[3.5px]"
             />
           </g>
         );
@@ -513,8 +572,8 @@ export const PertChart: React.FC<PertChartProps> = ({
           <span className="text-slate-600 text-sm font-semibold tracking-wide">
             Critical Path:
           </span>
-          <span className="text-2xl font-black text-red-600 tracking-tight">
-            {criticalPathDuration} <span className="text-sm font-medium">Days</span>
+          <span className="text-xl font-bold font-mono">
+            {formatDays(criticalPathDuration)} <span className="text-sm font-medium">Days</span>
           </span>
         </div>
         <div className="h-6 w-px bg-slate-200" />
@@ -627,7 +686,7 @@ export const PertChart: React.FC<PertChartProps> = ({
 
       {/* SVG Canvas for Edges & Marker Definitions */}
       <svg
-        className="absolute inset-0 w-full h-full pointer-events-none"
+        className="absolute inset-0 w-full h-full pointer-events-none overflow-visible"
         style={{
           transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
           transformOrigin: '0 0',
@@ -712,9 +771,14 @@ export const PertChart: React.FC<PertChartProps> = ({
           const pos = positions.get(task.id);
           if (!pos) return null;
 
+          const isMilestone = (task.duration ?? 0) === 0;
+          const isSummary = !!task.isSummary;
+          const isSubtask = (task.outlineLevel || 1) > 1;
           const isCritical = criticalSet.has(task.id);
           const isTargetHover = targetHoverId === task.id;
           const isSourceDragging = connectionDrag?.fromId === task.id;
+          const isSelected = !!selectedTaskIds?.has(task.id);
+          const isSubtaskOfSelected = !isSelected && selectedParentSubtaskIds.has(task.id);
 
           return (
             <div
@@ -728,9 +792,28 @@ export const PertChart: React.FC<PertChartProps> = ({
                 willChange: draggingTaskId === task.id ? 'left, top' : 'auto',
               }}
               onMouseDown={e => handleBorderMouseDown(e, task.id)}
+              onClick={e => {
+                e.stopPropagation();
+                if (onSelectTaskIds) {
+                  if (e.ctrlKey || e.metaKey) {
+                    const next = new Set(selectedTaskIds || []);
+                    if (next.has(task.id)) {
+                      next.delete(task.id);
+                    } else {
+                      next.add(task.id);
+                    }
+                    onSelectTaskIds(next);
+                  } else {
+                    onSelectTaskIds(new Set([task.id]));
+                  }
+                }
+              }}
               onContextMenu={e => {
                 e.preventDefault();
                 e.stopPropagation();
+                if (onSelectTaskIds && !selectedTaskIds?.has(task.id)) {
+                  onSelectTaskIds(new Set([task.id]));
+                }
                 setContextMenu({
                   task,
                   x: e.clientX,
@@ -747,15 +830,34 @@ export const PertChart: React.FC<PertChartProps> = ({
                   setTargetHoverId(null);
                 }
               }}
-              title="四周（移動圖示）：拖曳可調整此任務框位置；右鍵點擊：縮排/凸排子任務"
-              className={`group pointer-events-auto rounded-lg bg-slate-200/90 cursor-move p-[5px] select-none ${
+              className={`group pointer-events-auto cursor-move p-[5px] select-none ${
+                isMilestone
+                  ? 'rounded-2xl border-2'
+                  : isSummary
+                  ? 'rounded-lg border-2 border-dashed'
+                  : 'rounded-lg border'
+              } ${
                 draggingTaskId === task.id
                   ? '!transition-none shadow-2xl z-40 ring-2 ring-blue-500 scale-[1.01]'
-                  : 'transition-[border-color,box-shadow,background-color] duration-150'
+                  : 'transition-[border-color,box-shadow,background-color,transform] duration-150'
               } ${
-                isCritical
-                  ? 'border-2 border-red-600 shadow-md shadow-red-200/60'
-                  : 'border border-slate-400 shadow-xs hover:border-blue-500 hover:shadow-md'
+                isSelected
+                  ? '!ring-4 !ring-blue-600 !border-blue-600 scale-105 shadow-2xl z-30'
+                  : isSubtaskOfSelected
+                  ? '!ring-3 !ring-sky-400 !border-sky-500 !bg-sky-50/70 shadow-xl scale-[1.02] z-20'
+                  : ''
+              } ${
+                isMilestone
+                  ? isCritical
+                    ? 'border-red-600 bg-gradient-to-br from-amber-100 via-rose-50 to-red-100 shadow-md shadow-red-300/50 ring-2 ring-red-400'
+                    : 'border-amber-500 bg-gradient-to-br from-amber-100 via-amber-50 to-orange-100 shadow-md shadow-amber-200/50 ring-2 ring-amber-400'
+                  : isSummary
+                  ? isCritical
+                    ? 'border-red-600 bg-red-50/90 shadow-md ring-2 ring-red-400'
+                    : 'border-slate-700 bg-slate-100/90 shadow-md ring-1 ring-slate-400'
+                  : isCritical
+                  ? 'border-red-600 bg-slate-200/90 shadow-md shadow-red-200/60'
+                  : 'border-slate-400 bg-slate-200/90 shadow-xs hover:border-blue-500 hover:shadow-md'
               } ${
                 isTargetHover
                   ? 'ring-4 ring-blue-500 scale-105 shadow-2xl bg-blue-100/90'
@@ -766,8 +868,8 @@ export const PertChart: React.FC<PertChartProps> = ({
                   : ''
               }`}
             >
-              {/* Category pill if available */}
-              {task.category && (
+              {/* Category pill if available and not milestone */}
+              {task.category && !isMilestone && (
                 <div className="absolute -top-3 left-2 z-10 pointer-events-none">
                   <span
                     className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border shadow-2xs ${getCategoryColor(
@@ -775,15 +877,6 @@ export const PertChart: React.FC<PertChartProps> = ({
                     )}`}
                   >
                     {task.category}
-                  </span>
-                </div>
-              )}
-
-              {/* Subtask outline badge if outlineLevel > 1 */}
-              {(task.outlineLevel || 1) > 1 && (
-                <div className="absolute -top-3 right-2 z-10 pointer-events-none">
-                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-indigo-50 border-indigo-200 text-indigo-700 shadow-2xs">
-                    ↳ 子任務 (L{task.outlineLevel})
                   </span>
                 </div>
               )}
@@ -800,36 +893,73 @@ export const PertChart: React.FC<PertChartProps> = ({
                     y: e.clientY,
                   });
                 }}
-                title="中央（手指圖示）：拖曳拉出連線至其他任務，點擊編輯項目與天數"
-                className="w-full h-full cursor-pointer bg-white rounded-md overflow-hidden border border-slate-300"
+                className={`w-full h-full cursor-pointer bg-white overflow-hidden border ${
+                  isMilestone
+                    ? 'rounded-xl border-amber-300'
+                    : 'rounded-md border-slate-300'
+                }`}
               >
                 {!showDetailedBox ? (
                   <div className="flex flex-col h-full divide-y divide-slate-300">
                     {/* Task Name Box */}
                     <div
-                      className={`px-2.5 py-2 text-xs font-semibold leading-tight text-slate-800 flex items-center justify-between min-h-[46px] hover:bg-slate-50 ${
-                        isCritical ? 'bg-red-50/40 text-red-950 font-bold' : ''
+                      className={`px-2.5 py-2 text-xs font-semibold leading-tight flex items-center justify-between min-h-[46px] hover:bg-slate-50 ${
+                        isMilestone
+                          ? isCritical
+                            ? 'bg-red-50 text-red-950 font-bold'
+                            : 'bg-amber-50/90 text-amber-950 font-bold'
+                          : isCritical
+                          ? 'bg-red-50/40 text-red-950 font-bold'
+                          : 'text-slate-800'
                       }`}
                     >
-                      <span className="line-clamp-2" title={task.name}>
-                        {task.name}
-                      </span>
+                      <div className="flex items-center space-x-1.5 min-w-0">
+                        {isSummary ? (
+                          <span className="text-sm select-none shrink-0" title={`父階任務 (${getParentBadgeLabel(task)})`}>
+                            📁
+                          </span>
+                        ) : isSubtask ? (
+                          <span
+                            className="text-blue-600 select-none shrink-0 inline-flex items-center"
+                            title={`子任務 (L${task.outlineLevel || 2})`}
+                          >
+                            <Indent size={14} />
+                          </span>
+                        ) : null}
+                        <span className="line-clamp-2">
+                          {task.name}
+                        </span>
+                      </div>
                       {isCritical && (
                         <span className="shrink-0 ml-1 w-2 h-2 rounded-full bg-red-600" />
                       )}
                     </div>
 
-                    {/* Date & Duration Bottom Row (Reference Image Style: "02/01/00 | 1 day") */}
+                    {/* Date & Duration Bottom Row */}
                     <div
-                      className={`flex items-center text-[11px] font-medium divide-x divide-slate-300 h-[32px] ${
-                        isCritical ? 'bg-red-50/80 text-red-900 font-bold' : 'bg-slate-50/70 text-slate-600'
+                      className={`flex items-center text-[11px] font-medium divide-x h-[32px] ${
+                        isMilestone
+                          ? isCritical
+                            ? 'bg-red-100/80 text-red-900 divide-red-200 font-bold'
+                            : 'bg-amber-100/80 text-amber-900 divide-amber-200 font-bold'
+                          : isCritical
+                          ? 'bg-red-50/80 text-red-900 divide-slate-300 font-bold'
+                          : 'bg-slate-50/70 text-slate-600 divide-slate-300'
                       }`}
                     >
                       <div className="flex-1 px-2 text-center truncate font-mono">
-                        {formatDateForDisplay(task.startDate) || `Day ${task.earlyStart}`}
+                        {formatDateForDisplay(task.startDate) || `Day ${formatDays(task.earlyStart)}`}
                       </div>
                       <div className="flex-1 px-2 text-center truncate font-mono">
-                        {task.duration} {task.duration === 1 ? 'day' : 'days'}
+                        {isSummary ? (
+                          <span className="font-bold flex items-center justify-center space-x-1 text-slate-800" title={`${getParentBadgeLabel(task)}，工期由子任務自動彙總`}>
+                            <span>📁 {formatDays(task.duration)} 天</span>
+                          </span>
+                        ) : (
+                          <span>
+                            {formatDays(task.duration)} {task.duration === 1 ? 'day' : 'days'}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -837,30 +967,48 @@ export const PertChart: React.FC<PertChartProps> = ({
                   /* Full Detailed CPM Node (ES, EF, LS, LF, Duration, Float) */
                   <div className="flex flex-col text-[10px] divide-y divide-slate-200">
                     <div
-                      className={`p-1.5 font-bold truncate text-slate-800 ${
-                        isCritical ? 'bg-red-50 text-red-900' : 'bg-slate-100'
+                      className={`p-1.5 font-bold truncate ${
+                        isMilestone
+                          ? isCritical
+                            ? 'bg-red-100 text-red-950'
+                            : 'bg-amber-100 text-amber-950'
+                          : isSummary
+                          ? isCritical
+                            ? 'bg-red-100 text-red-950 font-black'
+                            : 'bg-slate-200 text-slate-900 font-bold'
+                          : isCritical
+                            ? 'bg-red-50 text-red-900'
+                            : 'bg-slate-100 text-slate-800'
                       }`}
                     >
-                      [{task.id}] {task.name}
+                      {isSummary ? (
+                        <span className="mr-1 select-none" title={`父階任務 (${getParentBadgeLabel(task)})`}>📁</span>
+                      ) : isSubtask ? (
+                        <span className="mr-1 select-none inline-flex items-center text-blue-600 align-middle" title={`子任務 (L${task.outlineLevel || 2})`}>
+                          <Indent size={12} />
+                        </span>
+                      ) : null}[{task.id}] {task.name}
                     </div>
                     <div className="grid grid-cols-3 divide-x divide-slate-200 text-center py-1">
                       <div>
                         <div className="text-[8px] text-slate-400">ES</div>
-                        <div className="font-mono font-bold">{task.earlyStart}</div>
+                        <div className="font-mono font-bold">{formatDays(task.earlyStart)}</div>
                       </div>
                       <div>
-                        <div className="text-[8px] text-slate-400">DUR</div>
-                        <div className="font-mono font-bold">{task.duration}d</div>
+                        <div className="text-[8px] text-slate-400">{isSummary ? 'ROLLUP' : 'DUR'}</div>
+                        <div className="font-mono font-bold">
+                          {`${formatDays(task.duration)}d`}
+                        </div>
                       </div>
                       <div>
                         <div className="text-[8px] text-slate-400">EF</div>
-                        <div className="font-mono font-bold">{task.earlyFinish}</div>
+                        <div className="font-mono font-bold">{formatDays(task.earlyFinish)}</div>
                       </div>
                     </div>
                     <div className="grid grid-cols-3 divide-x divide-slate-200 text-center py-1 bg-slate-50">
                       <div>
                         <div className="text-[8px] text-slate-400">LS</div>
-                        <div className="font-mono font-bold">{task.lateStart}</div>
+                        <div className="font-mono font-bold">{formatDays(task.lateStart)}</div>
                       </div>
                       <div>
                         <div className="text-[8px] text-slate-400">SLACK</div>
@@ -869,12 +1017,12 @@ export const PertChart: React.FC<PertChartProps> = ({
                             isCritical ? 'text-red-600' : 'text-slate-600'
                           }`}
                         >
-                          {task.totalFloat}
+                          {formatDays(task.totalFloat)}
                         </div>
                       </div>
                       <div>
                         <div className="text-[8px] text-slate-400">LF</div>
-                        <div className="font-mono font-bold">{task.lateFinish}</div>
+                        <div className="font-mono font-bold">{formatDays(task.lateFinish)}</div>
                       </div>
                     </div>
                   </div>
@@ -909,6 +1057,66 @@ export const PertChart: React.FC<PertChartProps> = ({
         canIndent={true}
         canOutdent={((contextMenu?.task?.outlineLevel || 1) > 1)}
       />
+
+      {/* Delete Predecessor Dependency Confirmation Modal */}
+      {deleteEdgeModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-in fade-in"
+          onClick={() => setDeleteEdgeModal(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-sm w-full p-5 flex flex-col space-y-4 animate-in zoom-in-95"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start space-x-3">
+              <div className="p-2.5 rounded-xl bg-red-100 text-red-600 shrink-0">
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">刪除前置任務依賴關聯？</h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  您剛雙擊了前置連線：
+                </p>
+                <div className="mt-2 bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs font-mono flex items-center justify-center space-x-2 text-slate-800">
+                  <span className="font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">
+                    {deleteEdgeModal.fromId}
+                  </span>
+                  <span className="text-slate-400">➔ (前置於) ➔</span>
+                  <span className="font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">
+                    {deleteEdgeModal.toId}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-2">
+                  確定要解除任務 [{deleteEdgeModal.toId}] 對 [{deleteEdgeModal.fromId}] 的前置關聯嗎？
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDeleteEdgeModal(null)}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onRemoveDependency) {
+                    onRemoveDependency(deleteEdgeModal.fromId, deleteEdgeModal.toId);
+                  }
+                  setDeleteEdgeModal(null);
+                }}
+                className="px-4 py-1.5 rounded-lg text-xs font-bold text-white bg-red-600 hover:bg-red-700 shadow-sm transition-colors flex items-center space-x-1"
+              >
+                <Trash2 size={13} />
+                <span>確認刪除前置關聯</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -18,6 +18,10 @@ export interface Task {
   // WBS / Hierarchy
   outlineLevel?: number; // 1 = root, 2 = subtask, etc. (MS Project compatible)
   parentId?: string; // parent task ID if subtask
+  isSummary?: boolean; // True if this task has subtasks (Summary / Parent Task)
+  subtaskIds?: string[]; // IDs of all descendant subtasks
+  childrenIds?: string[]; // IDs of direct child subtasks
+  summaryLabel?: string; // Custom or default label for parent badge (e.g. "L1:(T2, T3)")
   
   // Schedule overrides
   manualEarlyStart?: number; // manual start day offset in Gantt chart

@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Task } from '../core/types';
-import { formatDateForDisplay } from '../core/cpmEngine';
+import { formatDateForDisplay, formatDays, getParentBadgeLabel } from '../core/cpmEngine';
 import { Plus, Trash2, Edit2 } from 'lucide-react';
 
 interface TaskTableProps {
@@ -63,18 +63,39 @@ export const TaskTable: React.FC<TaskTableProps> = ({
           <tbody className="divide-y divide-slate-100">
             {tasks.map(task => {
               const isCrit = criticalSet.has(task.id);
+              const isSummary = !!task.isSummary;
+              const isSubtask = (task.outlineLevel || 1) > 1;
+              const indentPadding = Math.min((task.outlineLevel || 1) - 1, 4) * 16;
+
               return (
                 <tr
                   key={task.id}
-                  className={`hover:bg-slate-50/80 transition-colors ${
-                    isCrit ? 'bg-red-50/20' : ''
+                  onClick={() => onSelectTask(task)}
+                  className={`hover:bg-blue-50/30 transition-colors cursor-pointer ${
+                    isSummary
+                      ? 'bg-slate-50/80 font-bold hover:bg-slate-100/90 text-slate-950'
+                      : isCrit
+                      ? 'bg-red-50/20'
+                      : ''
                   }`}
                 >
-                  <td className="px-4 py-2.5 text-center font-mono font-bold text-slate-600">
+                  <td className={`px-4 py-2.5 text-center font-mono font-bold ${isSummary ? 'text-slate-900' : 'text-slate-600'}`}>
                     {task.id}
                   </td>
-                  <td className="px-4 py-2.5 font-medium text-slate-900">
+                  <td
+                    style={{ paddingLeft: `${16 + indentPadding}px` }}
+                    className={`px-4 py-2.5 ${isSummary ? 'font-bold text-slate-950' : 'font-medium text-slate-900'}`}
+                  >
                     <div className="flex items-center space-x-2">
+                      {isSummary ? (
+                        <span className="text-slate-700 text-sm shrink-0" title={getParentBadgeLabel(task)}>
+                          📁
+                        </span>
+                      ) : isSubtask ? (
+                        <span className="text-slate-400 font-mono text-[11px] shrink-0 select-none">
+                          ↳
+                        </span>
+                      ) : null}
                       {isCrit && (
                         <span className="w-2 h-2 rounded-full bg-red-600 shrink-0" />
                       )}
@@ -91,7 +112,17 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                     )}
                   </td>
                   <td className="px-3 py-2.5 text-center font-mono font-bold text-slate-800">
-                    {task.duration}
+                    {isSummary ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded bg-slate-200/80 text-slate-900 text-[11px] font-bold border border-slate-300" title={`${getParentBadgeLabel(task)}，由子項目自動彙總工期`}>
+                        📁 {formatDays(task.duration)} ({getParentBadgeLabel(task)})
+                      </span>
+                    ) : task.duration === 0 ? (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 text-[11px] font-bold border border-amber-200">
+                        0
+                      </span>
+                    ) : (
+                      formatDays(task.duration)
+                    )}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-[11px] text-slate-600">
                     {task.predecessors && task.predecessors.length > 0 ? (

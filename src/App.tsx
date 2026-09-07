@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import type { Task, ProjectData } from './core/types';
 import { calculateCPM } from './core/cpmEngine';
 import { SAMPLE_PROJECT_TASKS } from './data/sampleProject';
@@ -70,6 +70,70 @@ export function App() {
   const [pendingTaskPos, setPendingTaskPos] = useState<{ x: number; y: number } | null>(null);
   const [pendingPredecessors, setPendingPredecessors] = useState<string[]>([]);
 
+  // Undo / Redo History Stack
+  interface HistorySnapshot {
+    tasks: Task[];
+    projectName: string;
+    startDate: string;
+  }
+  const [undoStack, setUndoStack] = useState<HistorySnapshot[]>([]);
+  const [redoStack, setRedoStack] = useState<HistorySnapshot[]>([]);
+
+  const stateRef = useRef({ tasks, projectName, startDate });
+  stateRef.current = { tasks, projectName, startDate };
+
+  const pushHistory = () => {
+    setUndoStack(prev => {
+      const next = [
+        ...prev,
+        {
+          tasks: stateRef.current.tasks,
+          projectName: stateRef.current.projectName,
+          startDate: stateRef.current.startDate,
+        },
+      ];
+      if (next.length > 50) next.shift();
+      return next;
+    });
+    setRedoStack([]);
+  };
+
+  const handleUndo = () => {
+    if (undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, -1));
+    setRedoStack(prev => [
+      ...prev,
+      {
+        tasks: stateRef.current.tasks,
+        projectName: stateRef.current.projectName,
+        startDate: stateRef.current.startDate,
+      },
+    ]);
+    setTasks(previous.tasks);
+    setProjectName(previous.projectName);
+    setStartDate(previous.startDate);
+    showToast('↩️ 已復原上一步操作 (Undo)', 'info');
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setRedoStack(prev => prev.slice(0, -1));
+    setUndoStack(prev => [
+      ...prev,
+      {
+        tasks: stateRef.current.tasks,
+        projectName: stateRef.current.projectName,
+        startDate: stateRef.current.startDate,
+      },
+    ]);
+    setTasks(next.tasks);
+    setProjectName(next.projectName);
+    setStartDate(next.startDate);
+    showToast('↪️ 已重做操作 (Redo)', 'info');
+  };
+
   // Toast / notification
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -79,6 +143,9 @@ export function App() {
       setToast(prev => (prev?.message === message ? null : prev));
     }, 4000);
   };
+
+  // Selection state shared across Gantt and PERT charts
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
 
   // Recalculate CPM automatically whenever tasks or start date changes
   const cpmResult = useMemo(() => {
@@ -113,7 +180,7 @@ export function App() {
   };
 
   // Handle Save As (另存新檔)
-  const handleSaveAs = (newName: string, exportType: 'none' | 'xml' | 'json') => {
+  const handleSaveAs = async (newName: string, exportType: 'none' | 'xml' | 'json', dirHandle?: any) => {
     try {
       const trimmed = newName.trim();
       setProjectName(trimmed);
@@ -129,6 +196,10 @@ export function App() {
       setLastSavedTime(nowStr);
       setIsDirty(false);
 
+      const baseName = trimmed.toLowerCase().replace(/\s+/g, '_');
+      const xmlFilename = `${baseName}_msproject.xml`;
+      const jsonFilename = `${baseName}_backup.json`;
+
       if (exportType === 'xml') {
         const projectData: ProjectData = {
           id: 'msp-export',
@@ -139,30 +210,110 @@ export function App() {
           criticalPathTaskIds: cpmResult.criticalPathTaskIds,
         };
         const xmlContent = exportToMSProjectXML(projectData);
-        const blob = new Blob([xmlContent], { type: 'application/xml;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${trimmed.toLowerCase().replace(/\s+/g, '_')}_msproject.xml`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } else if (exportType === 'json') {
-        const blob = new Blob([JSON.stringify(data, null, 2)], {
-          type: 'application/json;charset=utf-8',
-        });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${trimmed.toLowerCase().replace(/\s+/g, '_')}_backup.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }
 
-      showToast(`🎉 已成功另存新檔為「${trimmed}」！`, 'success');
+        if (dirHandle && typeof dirHandle.getFileHandle === 'function') {
+          // Write directly to user-selected directory
+          const fileHandle = await dirHandle.getFileHandle(xmlFilename, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(xmlContent);
+          await writable.close();
+          showToast(`🎉 已成功將 XML 另存至本機目錄 [${dirHandle.name}]！`, 'success');
+        } else if ('showSaveFilePicker' in window) {
+          try {
+            const fileHandle = await (window as any).showSaveFilePicker({
+              suggestedName: xmlFilename,
+              types: [
+                {
+                  description: 'Microsoft Project XML (*.xml)',
+                  accept: { 'application/xml': ['.xml'], 'text/xml': ['.xml'] },
+                },
+              ],
+            });
+            const writable = await fileHandle.createWritable();
+            await writable.write(xmlContent);
+            await writable.close();
+            showToast(`🎉 已成功另存 XML 檔案 [${fileHandle.name}]！`, 'success');
+          } catch (err: any) {
+            if (err.name === 'AbortError') {
+              showToast(`已建立新專案「${trimmed}」（已取消匯出 XML 檔案）`, 'info');
+              return;
+            }
+            throw err;
+          }
+        } else {
+          // Standard download fallback
+          const blob = new Blob([xmlContent], { type: 'application/xml;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = xmlFilename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          showToast(`🎉 已成功另存新檔「${trimmed}」並下載 XML！`, 'success');
+        }
+      } else if (exportType === 'json') {
+        const jsonContent = JSON.stringify(data, null, 2);
+
+        if (dirHandle && typeof dirHandle.getFileHandle === 'function') {
+          // Write directly to user-selected directory
+          const fileHandle = await dirHandle.getFileHandle(jsonFilename, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(jsonContent);
+          await writable.close();
+          showToast(`🎉 已成功將 JSON 備份檔另存至本機目錄 [${dirHandle.name}]！`, 'success');
+        } else if ('showSaveFilePicker' in window) {
+          try {
+            const fileHandle = await (window as any).showSaveFilePicker({
+              suggestedName: jsonFilename,
+              types: [
+                {
+                  description: 'JSON 專案檔 (*.json)',
+                  accept: { 'application/json': ['.json'] },
+                },
+              ],
+            });
+            const writable = await fileHandle.createWritable();
+            await writable.write(jsonContent);
+            await writable.close();
+            showToast(`🎉 已成功另存 JSON 檔案 [${fileHandle.name}]！`, 'success');
+          } catch (err: any) {
+            if (err.name === 'AbortError') {
+              showToast(`已建立新專案「${trimmed}」（已取消匯出 JSON 檔案）`, 'info');
+              return;
+            }
+            throw err;
+          }
+        } else {
+          // Standard download fallback
+          const blob = new Blob([jsonContent], {
+            type: 'application/json;charset=utf-8',
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = jsonFilename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          showToast(`🎉 已成功另存新檔「${trimmed}」並下載 JSON！`, 'success');
+        }
+      } else {
+        // exportType === 'none' (另存為新專案)
+        if (dirHandle && typeof dirHandle.getFileHandle === 'function') {
+          // User picked a computer directory: save project backup into that directory as well!
+          const jsonContent = JSON.stringify(data, null, 2);
+          const fileHandle = await dirHandle.getFileHandle(jsonFilename, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(jsonContent);
+          await writable.close();
+          showToast(`🎉 已另存新專案「${trimmed}」，並同步儲存至電腦目錄 [${dirHandle.name}]！`, 'success');
+        } else {
+          showToast(`🎉 已成功另存新專案為「${trimmed}」！`, 'success');
+        }
+      }
     } catch (err: any) {
       showToast('另存新檔失敗：' + (err.message || err), 'error');
     }
@@ -173,6 +324,7 @@ export function App() {
     taskId: string,
     updates: { manualEarlyStart?: number; duration?: number }
   ) => {
+    pushHistory();
     setTasks(prev =>
       prev.map(t =>
         t.id === taskId
@@ -180,68 +332,156 @@ export function App() {
               ...t,
               manualEarlyStart:
                 updates.manualEarlyStart !== undefined
-                  ? updates.manualEarlyStart
+                  ? Math.round((updates.manualEarlyStart + Number.EPSILON) * 100) / 100
                   : t.manualEarlyStart,
-              duration: updates.duration !== undefined ? updates.duration : t.duration,
+              duration:
+                updates.duration !== undefined
+                  ? Math.round((Math.max(0, updates.duration) + Number.EPSILON) * 100) / 100
+                  : t.duration,
             }
           : t
       )
     );
   };
 
-  // Indent task as subtask
-  const handleIndentTask = (task: Task) => {
-    setTasks(prev => {
-      const idx = prev.findIndex(t => t.id === task.id);
-      if (idx < 0) return prev;
-      const currentLevel = prev[idx].outlineLevel || 1;
-      const newLevel = currentLevel + 1;
-      let parentId = prev[idx].parentId;
-      for (let i = idx - 1; i >= 0; i--) {
-        const pLevel = prev[i].outlineLevel || 1;
-        if (pLevel < newLevel) {
-          parentId = prev[i].id;
-          break;
-        }
-      }
-      return prev.map((t, i) =>
-        i === idx
-          ? {
-              ...t,
-              outlineLevel: newLevel,
-              parentId: parentId || (idx > 0 ? prev[idx - 1].id : undefined),
-            }
-          : t
-      );
-    });
-    showToast(`已將任務 [${task.id}] 縮排為子任務 (階層 ${(task.outlineLevel || 1) + 1})`, 'info');
-  };
+  // Indent task(s) as subtask(s):
+  // 支援單一任務或多個已選取任務同時縮排（例如 T2, T3 都選中時一起縮排）
+  const handleIndentTask = (target: Task | Task[] | string[] | string) => {
+    let targetIds: string[] = [];
+    if (Array.isArray(target)) {
+      targetIds = target.map(item => (typeof item === 'string' ? item : item.id));
+    } else if (typeof target === 'string') {
+      targetIds = [target];
+    } else {
+      targetIds = [target.id];
+    }
 
-  // Outdent task
-  const handleOutdentTask = (task: Task) => {
+    if (targetIds.length === 0) return;
+
+    const targetSet = new Set(targetIds);
+    const orderedTargetTasks = tasks.filter(t => targetSet.has(t.id));
+    if (orderedTargetTasks.length === 0) return;
+
+    const firstIdx = tasks.findIndex(t => t.id === orderedTargetTasks[0].id);
+    if (firstIdx <= 0 && orderedTargetTasks.length === 1) {
+      showToast(`第一項任務 [${orderedTargetTasks[0].id}] 上方無鄰接任務，無法縮排`, 'info');
+      return;
+    }
+
+    pushHistory();
+
     setTasks(prev => {
-      const idx = prev.findIndex(t => t.id === task.id);
-      if (idx < 0) return prev;
-      const currentLevel = prev[idx].outlineLevel || 1;
-      if (currentLevel <= 1) return prev;
-      const newLevel = currentLevel - 1;
-      let parentId: string | undefined = undefined;
-      if (newLevel > 1) {
-        for (let i = idx - 1; i >= 0; i--) {
-          const pLevel = prev[i].outlineLevel || 1;
-          if (pLevel < newLevel) {
-            parentId = prev[i].id;
-            break;
+      const next = prev.map(t => ({ ...t }));
+
+      for (let k = 0; k < orderedTargetTasks.length; k++) {
+        const currentTarget = orderedTargetTasks[k];
+        const idx = next.findIndex(t => t.id === currentTarget.id);
+        if (idx <= 0) continue;
+
+        const prevTask = next[idx - 1];
+        const prevLevel = prevTask.outlineLevel || 1;
+        const currentLevel = next[idx].outlineLevel || 1;
+
+        let newLevel: number;
+        let newParentId: string | undefined;
+
+        // 若直接前一列也是本次同時縮排的任務，則維持同階兄弟子任務關係
+        if (targetSet.has(prevTask.id)) {
+          newLevel = prevTask.outlineLevel || 1;
+          newParentId = prevTask.parentId;
+        } else {
+          if (currentLevel === prevLevel) {
+            // 規則 1: 和 UI 上一層鄰接 task 同一階時，讓上一層 task 直接為其父階 task
+            newParentId = prevTask.id;
+            newLevel = prevLevel + 1;
+          } else if (prevLevel > currentLevel) {
+            // 規則 2: 若上一階已是別人的子階，就讓他也成為同一父階的子階
+            newParentId = prevTask.parentId;
+            newLevel = prevLevel;
+          } else {
+            // 當前已比上一階深，進一步以上一階為父階
+            newParentId = prevTask.id;
+            newLevel = currentLevel + 1;
           }
         }
+
+        next[idx].outlineLevel = newLevel;
+        next[idx].parentId = newParentId;
       }
-      return prev.map((t, i) =>
-        i === idx
-          ? { ...t, outlineLevel: newLevel, parentId }
-          : t
-      );
+
+      return next;
     });
-    showToast(`已將任務 [${task.id}] 凸排 (階層 ${Math.max(1, (task.outlineLevel || 1) - 1)})`, 'info');
+
+    if (orderedTargetTasks.length === 1) {
+      showToast(`已縮排任務 [${orderedTargetTasks[0].id}] 為子任務`, 'info');
+    } else {
+      showToast(`已同時縮排 ${orderedTargetTasks.length} 個任務 (${orderedTargetTasks.map(t => t.id).join(', ')})`, 'success');
+    }
+  };
+
+  // Outdent task(s)
+  const handleOutdentTask = (target: Task | Task[] | string[] | string) => {
+    let targetIds: string[] = [];
+    if (Array.isArray(target)) {
+      targetIds = target.map(item => (typeof item === 'string' ? item : item.id));
+    } else if (typeof target === 'string') {
+      targetIds = [target];
+    } else {
+      targetIds = [target.id];
+    }
+
+    if (targetIds.length === 0) return;
+
+    const targetSet = new Set(targetIds);
+    const orderedTargetTasks = tasks.filter(t => targetSet.has(t.id));
+    const outdentable = orderedTargetTasks.filter(t => (t.outlineLevel || 1) > 1);
+
+    if (outdentable.length === 0) {
+      showToast(`所選任務已是頂級任務，無法再凸排`, 'info');
+      return;
+    }
+
+    pushHistory();
+
+    setTasks(prev => {
+      const next = prev.map(t => ({ ...t }));
+
+      for (let k = 0; k < orderedTargetTasks.length; k++) {
+        const currentTarget = orderedTargetTasks[k];
+        const idx = next.findIndex(t => t.id === currentTarget.id);
+        if (idx < 0) continue;
+
+        const currentLevel = next[idx].outlineLevel || 1;
+        if (currentLevel <= 1) continue;
+
+        const newLevel = currentLevel - 1;
+        let parentId: string | undefined = undefined;
+
+        if (newLevel > 1) {
+          for (let i = idx - 1; i >= 0; i--) {
+            const pLevel = next[i].outlineLevel || 1;
+            if (pLevel < newLevel) {
+              parentId = next[i].id;
+              break;
+            } else if (pLevel === newLevel) {
+              parentId = next[i].parentId;
+              break;
+            }
+          }
+        }
+
+        next[idx].outlineLevel = newLevel;
+        next[idx].parentId = parentId;
+      }
+
+      return next;
+    });
+
+    if (outdentable.length === 1) {
+      showToast(`已將任務 [${outdentable[0].id}] 凸排 (階層 ${outdentable[0].outlineLevel ? outdentable[0].outlineLevel - 1 : 1})`, 'info');
+    } else {
+      showToast(`已同時凸排 ${outdentable.length} 個任務`, 'success');
+    }
   };
 
   // Auto-save debounced when tasks, projectName, or startDate changes
@@ -253,17 +493,36 @@ export function App() {
     return () => clearTimeout(timer);
   }, [tasks, projectName, startDate]);
 
-  // Keyboard shortcut Ctrl+S / Cmd+S to manual save
+  // Keyboard shortcuts: Ctrl+S (Save), Ctrl+Z (Undo), Ctrl+Y / Ctrl+Shift+Z (Redo)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      const target = e.target as HTMLElement;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      } else if (
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')
+      ) {
+        e.preventDefault();
+        handleRedo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         handleSaveProject(true);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [tasks, projectName, startDate]);
+  }, [undoStack, redoStack, tasks, projectName, startDate]);
 
   // Handle drag-to-draw create task at coordinate (with optional predecessor)
   const handleCreateTaskAt = (pos: { x: number; y: number }, predecessorId?: string) => {
@@ -282,6 +541,7 @@ export function App() {
 
   // Handle Save Task (Create or Update)
   const handleSaveTask = (taskData: Partial<Task>) => {
+    pushHistory();
     if (taskData.id) {
       // Update existing
       setTasks(prev =>
@@ -293,11 +553,15 @@ export function App() {
                 duration: taskData.duration ?? t.duration,
                 category: taskData.category,
                 predecessors: taskData.predecessors || [],
+                summaryLabel:
+                  taskData.summaryLabel !== undefined
+                    ? taskData.summaryLabel
+                    : t.summaryLabel,
               }
             : t
         )
       );
-      showToast(`已更新任務 [${taskData.id}] ${taskData.name}`, 'success');
+      showToast(`已更新任務 [${taskData.id}] ${taskData.name || ''}`, 'success');
     } else {
       // Create new
       let maxNum = 0;
@@ -330,20 +594,148 @@ export function App() {
 
   // Handle Delete Task
   const handleDeleteTask = (taskId: string) => {
+    pushHistory();
     setTasks(prev => {
       return prev
         .filter(t => t.id !== taskId)
         .map(t => ({
           ...t,
-          predecessors: t.predecessors.filter(p => p !== taskId),
+          predecessors: (t.predecessors || []).filter(p => p !== taskId),
         }));
     });
     showToast(`已刪除任務 [${taskId}]`, 'info');
   };
 
+  // Handle Delete Multiple Tasks
+  const handleDeleteMultipleTasks = (taskIds: string[]) => {
+    if (taskIds.length === 0) return;
+    pushHistory();
+    const idSet = new Set(taskIds);
+    setTasks(prev => {
+      return prev
+        .filter(t => !idSet.has(t.id))
+        .map(t => ({
+          ...t,
+          predecessors: (t.predecessors || []).filter(p => !idSet.has(p)),
+        }));
+    });
+    showToast(`已刪除 ${taskIds.length} 個任務`, 'info');
+  };
+
+  // Reorder tasks (Drag and drop row)
+  const handleReorderTasks = (sourceTaskIds: string[], targetTaskId: string, position: 'before' | 'after') => {
+    if (sourceTaskIds.length === 0 || sourceTaskIds.includes(targetTaskId)) return;
+    pushHistory();
+    setTasks(prev => {
+      const moving = prev.filter(t => sourceTaskIds.includes(t.id));
+      const remaining = prev.filter(t => !sourceTaskIds.includes(t.id));
+      const targetIdx = remaining.findIndex(t => t.id === targetTaskId);
+      if (targetIdx < 0) return prev;
+
+      const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
+      const nextTasks = [...remaining];
+      nextTasks.splice(insertIdx, 0, ...moving);
+      return nextTasks;
+    });
+    showToast(`已調整 ${sourceTaskIds.length} 項任務順序`, 'info');
+  };
+
+  // Insert task above or below target
+  const handleInsertTask = (targetTaskId: string, position: 'before' | 'after') => {
+    pushHistory();
+    setTasks(prev => {
+      let maxNum = 0;
+      prev.forEach(t => {
+        const num = parseInt(t.id.replace(/\D/g, ''), 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      });
+      const newId = `T${maxNum + 1}`;
+      const targetTask = prev.find(t => t.id === targetTaskId);
+      const targetIdx = prev.findIndex(t => t.id === targetTaskId);
+
+      const newTask: Task = {
+        id: newId,
+        uid: maxNum + 1,
+        name: `新任務 ${newId}`,
+        duration: 1,
+        outlineLevel: targetTask?.outlineLevel ?? 1,
+        parentId: targetTask?.parentId,
+        predecessors: [],
+      };
+
+      const nextTasks = [...prev];
+      const insertIdx = targetIdx < 0 ? nextTasks.length : position === 'before' ? targetIdx : targetIdx + 1;
+      nextTasks.splice(insertIdx, 0, newTask);
+      return nextTasks;
+    });
+    showToast(`已在${position === 'before' ? '上方' : '下方'}插入新任務`, 'success');
+  };
+
+  // Clipboard state for copy / cut / paste
+  const [clipboard, setClipboard] = useState<{
+    tasks: Task[];
+    mode: 'copy' | 'cut';
+  } | null>(null);
+
+  const handleCopyTasks = (taskIds: string[]) => {
+    const matched = tasks.filter(t => taskIds.includes(t.id));
+    if (matched.length === 0) return;
+    setClipboard({ tasks: matched, mode: 'copy' });
+    showToast(`已複製 ${matched.length} 項任務到剪貼簿`, 'info');
+  };
+
+  const handleCutTasks = (taskIds: string[]) => {
+    const matched = tasks.filter(t => taskIds.includes(t.id));
+    if (matched.length === 0) return;
+    setClipboard({ tasks: matched, mode: 'cut' });
+    showToast(`已剪下 ${matched.length} 項任務，請至目標位置按右鍵「貼上」`, 'info');
+  };
+
+  const handlePasteTasks = (targetTaskId: string) => {
+    if (!clipboard || clipboard.tasks.length === 0) {
+      showToast('剪貼簿無任務可貼上', 'info');
+      return;
+    }
+
+    pushHistory();
+    if (clipboard.mode === 'cut') {
+      const cutIds = clipboard.tasks.map(t => t.id);
+      handleReorderTasks(cutIds, targetTaskId, 'after');
+      setClipboard(null);
+      showToast(`已移動貼上 ${cutIds.length} 項任務`, 'success');
+    } else {
+      setTasks(prev => {
+        let maxNum = 0;
+        prev.forEach(t => {
+          const num = parseInt(t.id.replace(/\D/g, ''), 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        });
+
+        const newTasks: Task[] = clipboard.tasks.map(orig => {
+          maxNum++;
+          return {
+            ...orig,
+            id: `T${maxNum}`,
+            uid: maxNum,
+            name: `${orig.name} (複本)`,
+            predecessors: [],
+          };
+        });
+
+        const targetIdx = prev.findIndex(t => t.id === targetTaskId);
+        const nextTasks = [...prev];
+        const insertIdx = targetIdx < 0 ? nextTasks.length : targetIdx + 1;
+        nextTasks.splice(insertIdx, 0, ...newTasks);
+        return nextTasks;
+      });
+      showToast(`已複製並貼上 ${clipboard.tasks.length} 項新任務`, 'success');
+    }
+  };
+
   // Connect dependency directly in PERT chart
   const handleAddDependency = (fromId: string, toId: string) => {
     if (fromId === toId) return;
+    pushHistory();
     setTasks(prev =>
       prev.map(t => {
         if (t.id === toId && !t.predecessors.includes(fromId)) {
@@ -358,8 +750,53 @@ export function App() {
     showToast(`已建立依賴關聯：[${fromId}] ➔ [${toId}]`, 'success');
   };
 
-  // Export to Microsoft Project XML
-  const handleExportMSProject = () => {
+  // Remove dependency directly (when double clicked in PERT arrow or Gantt tag)
+  const handleRemoveDependency = (fromId: string, toId: string) => {
+    pushHistory();
+    setTasks(prev =>
+      prev.map(t => {
+        if (t.id === toId) {
+          return {
+            ...t,
+            predecessors: t.predecessors.filter(p => p !== fromId),
+          };
+        }
+        return t;
+      })
+    );
+    showToast(`已刪除前置任務依賴：[${fromId}] ➔ [${toId}]`, 'info');
+  };
+
+  // Edit/replace predecessor task ID (when double clicked in Gantt tag)
+  const handleUpdatePredecessor = (toId: string, oldPredId: string, newPredId: string) => {
+    if (oldPredId === newPredId) return;
+    if (newPredId === toId) {
+      showToast(`前置任務不能是自己 [${toId}]`, 'error');
+      return;
+    }
+    const targetTaskExists = tasks.some(t => t.id === newPredId);
+    if (!targetTaskExists) {
+      showToast(`找不到任務編號 [${newPredId}]，請確認編號是否正確`, 'error');
+      return;
+    }
+    pushHistory();
+    setTasks(prev =>
+      prev.map(t => {
+        if (t.id === toId) {
+          const nextPreds = t.predecessors.map(p => (p === oldPredId ? newPredId : p));
+          return {
+            ...t,
+            predecessors: Array.from(new Set(nextPreds)),
+          };
+        }
+        return t;
+      })
+    );
+    showToast(`已更新前置任務編號：[${oldPredId}] ➔ [${newPredId}]`, 'success');
+  };
+
+  // Export to Microsoft Project XML (supports choosing save directory)
+  const handleExportMSProject = async () => {
     const projectData: ProjectData = {
       id: 'msp-export',
       name: projectName,
@@ -369,11 +806,35 @@ export function App() {
       criticalPathTaskIds: cpmResult.criticalPathTaskIds,
     };
     const xmlContent = exportToMSProjectXML(projectData);
+    const xmlFilename = `${projectName.toLowerCase().replace(/\s+/g, '_')}_msproject.xml`;
+
+    if ('showSaveFilePicker' in window) {
+      try {
+        const fileHandle = await (window as any).showSaveFilePicker({
+          suggestedName: xmlFilename,
+          types: [
+            {
+              description: 'Microsoft Project XML (*.xml)',
+              accept: { 'application/xml': ['.xml'], 'text/xml': ['.xml'] },
+            },
+          ],
+        });
+        const writable = await fileHandle.createWritable();
+        await writable.write(xmlContent);
+        await writable.close();
+        showToast(`🎉 已成功儲存 XML 至本機檔案 [${fileHandle.name}]！`, 'success');
+        return;
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+        console.warn('showSaveFilePicker error, falling back:', err);
+      }
+    }
+
     const blob = new Blob([xmlContent], { type: 'application/xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${projectName.toLowerCase().replace(/\s+/g, '_')}_msproject.xml`;
+    a.download = xmlFilename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -467,20 +928,45 @@ export function App() {
     reader.readAsText(file);
   };
 
-  // Export JSON Backup
-  const handleExportJSON = () => {
+  // Export JSON Backup (supports choosing save directory)
+  const handleExportJSON = async () => {
     const backup = {
       projectName,
       startDate,
       tasks,
     };
-    const blob = new Blob([JSON.stringify(backup, null, 2)], {
+    const jsonContent = JSON.stringify(backup, null, 2);
+    const jsonFilename = `${projectName.toLowerCase().replace(/\s+/g, '_')}_backup.json`;
+
+    if ('showSaveFilePicker' in window) {
+      try {
+        const fileHandle = await (window as any).showSaveFilePicker({
+          suggestedName: jsonFilename,
+          types: [
+            {
+              description: 'JSON 專案備份檔 (*.json)',
+              accept: { 'application/json': ['.json'] },
+            },
+          ],
+        });
+        const writable = await fileHandle.createWritable();
+        await writable.write(jsonContent);
+        await writable.close();
+        showToast(`🎉 已成功儲存備份至本機檔案 [${fileHandle.name}]！`, 'success');
+        return;
+      } catch (err: any) {
+        if (err.name === 'AbortError') return;
+        console.warn('showSaveFilePicker error, falling back:', err);
+      }
+    }
+
+    const blob = new Blob([jsonContent], {
       type: 'application/json;charset=utf-8',
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${projectName.toLowerCase().replace(/\s+/g, '_')}_backup.json`;
+    a.download = jsonFilename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -490,6 +976,7 @@ export function App() {
 
   // Reload Sample
   const handleLoadSample = () => {
+    pushHistory();
     setTasks(SAMPLE_PROJECT_TASKS);
     setProjectName('Software Development Project');
     setStartDate('2000-02-01');
@@ -510,6 +997,10 @@ export function App() {
         }}
         onSave={() => handleSaveProject(true)}
         onSaveAs={() => setIsSaveAsOpen(true)}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        canUndo={undoStack.length > 0}
+        canRedo={redoStack.length > 0}
         isDirty={isDirty}
         lastSavedTime={lastSavedTime}
         onLoadSample={handleLoadSample}
@@ -542,11 +1033,14 @@ export function App() {
             criticalPathDuration={cpmResult.criticalPathDuration}
             criticalPathTaskIds={cpmResult.criticalPathTaskIds}
             criticalEdges={cpmResult.criticalEdges}
+            selectedTaskIds={selectedTaskIds}
+            onSelectTaskIds={setSelectedTaskIds}
             onSelectTask={t => {
               setEditingTask(t);
               setIsModalOpen(true);
             }}
             onAddDependency={handleAddDependency}
+            onRemoveDependency={handleRemoveDependency}
             onCreateTaskAt={handleCreateTaskAt}
             onUpdateTaskPosition={handleUpdateTaskPosition}
             onIndentTask={handleIndentTask}
@@ -561,14 +1055,26 @@ export function App() {
             criticalPathDuration={cpmResult.criticalPathDuration}
             criticalPathTaskIds={cpmResult.criticalPathTaskIds}
             projectStartDate={startDate}
+            selectedTaskIds={selectedTaskIds}
+            onSelectTaskIds={setSelectedTaskIds}
             onSelectTask={t => {
               setEditingTask(t);
               setIsModalOpen(true);
             }}
             onUpdateTaskSchedule={handleUpdateTaskSchedule}
+            onRemoveDependency={handleRemoveDependency}
+            onUpdatePredecessor={handleUpdatePredecessor}
             onIndentTask={handleIndentTask}
             onOutdentTask={handleOutdentTask}
             onDeleteTask={handleDeleteTask}
+            onDeleteMultipleTasks={handleDeleteMultipleTasks}
+            onReorderTasks={handleReorderTasks}
+            onInsertTask={handleInsertTask}
+            onCopyTasks={handleCopyTasks}
+            onCutTasks={handleCutTasks}
+            onPasteTasks={handlePasteTasks}
+            hasClipboard={!!clipboard && clipboard.tasks.length > 0}
+            clipboardCount={clipboard?.tasks.length || 0}
           />
         )}
 
@@ -584,11 +1090,14 @@ export function App() {
                 criticalPathDuration={cpmResult.criticalPathDuration}
                 criticalPathTaskIds={cpmResult.criticalPathTaskIds}
                 criticalEdges={cpmResult.criticalEdges}
+                selectedTaskIds={selectedTaskIds}
+                onSelectTaskIds={setSelectedTaskIds}
                 onSelectTask={t => {
                   setEditingTask(t);
                   setIsModalOpen(true);
                 }}
                 onAddDependency={handleAddDependency}
+                onRemoveDependency={handleRemoveDependency}
                 onCreateTaskAt={handleCreateTaskAt}
                 onUpdateTaskPosition={handleUpdateTaskPosition}
                 onIndentTask={handleIndentTask}
@@ -607,14 +1116,26 @@ export function App() {
                 criticalPathDuration={cpmResult.criticalPathDuration}
                 criticalPathTaskIds={cpmResult.criticalPathTaskIds}
                 projectStartDate={startDate}
+                selectedTaskIds={selectedTaskIds}
+                onSelectTaskIds={setSelectedTaskIds}
                 onSelectTask={t => {
                   setEditingTask(t);
                   setIsModalOpen(true);
                 }}
                 onUpdateTaskSchedule={handleUpdateTaskSchedule}
+                onRemoveDependency={handleRemoveDependency}
+                onUpdatePredecessor={handleUpdatePredecessor}
                 onIndentTask={handleIndentTask}
                 onOutdentTask={handleOutdentTask}
                 onDeleteTask={handleDeleteTask}
+                onDeleteMultipleTasks={handleDeleteMultipleTasks}
+                onReorderTasks={handleReorderTasks}
+                onInsertTask={handleInsertTask}
+                onCopyTasks={handleCopyTasks}
+                onCutTasks={handleCutTasks}
+                onPasteTasks={handlePasteTasks}
+                hasClipboard={!!clipboard && clipboard.tasks.length > 0}
+                clipboardCount={clipboard?.tasks.length || 0}
               />
             </div>
           </div>

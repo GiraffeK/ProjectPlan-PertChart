@@ -15,6 +15,8 @@ import {
   Save,
   Check,
   FolderPlus,
+  Undo2,
+  Redo2,
 } from 'lucide-react';
 
 export type ViewMode = 'pert' | 'gantt' | 'split' | 'table';
@@ -27,6 +29,10 @@ interface ToolbarProps {
   onAddTask: () => void;
   onSave: () => void;
   onSaveAs?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
   isDirty?: boolean;
   lastSavedTime?: string | null;
   onLoadSample: () => void;
@@ -48,6 +54,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onAddTask,
   onSave,
   onSaveAs,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
   isDirty,
   lastSavedTime,
   onLoadSample,
@@ -198,6 +208,34 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <span>另存新檔</span>
           </button>
         )}
+
+        {/* Undo / Redo Buttons */}
+        <div className="flex items-center space-x-0.5 bg-slate-800/90 p-0.5 rounded-lg border border-slate-700/90 shrink-0">
+          <button
+            onClick={onUndo}
+            disabled={!canUndo}
+            title="復原操作 (Undo，快捷鍵 Ctrl + Z)"
+            className={`p-1.5 rounded-md transition-colors ${
+              canUndo
+                ? 'text-slate-200 hover:text-white hover:bg-slate-700 cursor-pointer'
+                : 'text-slate-600 cursor-not-allowed opacity-40'
+            }`}
+          >
+            <Undo2 size={14} />
+          </button>
+          <button
+            onClick={onRedo}
+            disabled={!canRedo}
+            title="重做操作 (Redo，快捷鍵 Ctrl + Y / Ctrl + Shift + Z)"
+            className={`p-1.5 rounded-md transition-colors ${
+              canRedo
+                ? 'text-slate-200 hover:text-white hover:bg-slate-700 cursor-pointer'
+                : 'text-slate-600 cursor-not-allowed opacity-40'
+            }`}
+          >
+            <Redo2 size={14} />
+          </button>
+        </div>
 
         {/* Autosave Status Badge: Fixed width to prevent any jumping or layout shifts */}
         <div

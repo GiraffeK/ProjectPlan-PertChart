@@ -37,6 +37,38 @@ export function formatDateForDisplay(dateStr?: string): string {
 }
 
 /**
+ * Round number to avoid IEEE 754 precision issues (e.g., 1.0000000000000002)
+ */
+export function roundDays(val: number, decimals: number = 4): number {
+  if (!Number.isFinite(val)) return 0;
+  const factor = 10 ** decimals;
+  return Math.round((val + Number.EPSILON) * factor) / factor;
+}
+
+/**
+ * Format days / duration cleanly for UI display (removes trailing precision artifacts)
+ */
+export function formatDays(val: number | undefined | null, maxDecimals: number = 2): string {
+  if (val === undefined || val === null || isNaN(val)) return '0';
+  const factor = 10 ** maxDecimals;
+  const rounded = Math.round((val + Number.EPSILON) * factor) / factor;
+  return rounded.toString();
+}
+
+/**
+ * Generates default or returns custom parent summary badge label
+ * e.g., "L1:(T2, T3)"
+ */
+export function getParentBadgeLabel(task: Task): string {
+  if (task.summaryLabel && task.summaryLabel.trim() !== '') {
+    return task.summaryLabel.trim();
+  }
+  const level = task.outlineLevel || 1;
+  const childIds = (task.childrenIds && task.childrenIds.length > 0 ? task.childrenIds : task.subtaskIds) || [];
+  return `L${level}:(${childIds.join(', ')})`;
+}
+
+/**
  * Detect cycles using DFS
  */
 function detectCycle(
@@ -76,8 +108,81 @@ function detectCycle(
   return { hasCycle: false, cycleNodes: [] };
 }
 
+export interface WBSInfo {
+  parentMap: Map<string, string>; // childId -> direct parentId
+  childrenMap: Map<string, string[]>; // parentId -> direct childrenIds
+  descendantsMap: Map<string, string[]>; // parentId -> all descendantIds
+  summaryTaskIds: Set<string>;
+}
+
 /**
- * Calculates CPM schedule (ES, EF, LS, LF, Float, Critical Path)
+ * Resolves WBS Parent-Child hierarchy from explicit parentId or outlineLevel sequence
+ */
+export function resolveWBSHierarchy(tasks: Task[]): WBSInfo {
+  const taskMap = new Map<string, Task>();
+  tasks.forEach(t => taskMap.set(t.id, t));
+
+  const parentMap = new Map<string, string>();
+  const childrenMap = new Map<string, string[]>();
+
+  // Stack of { level, id } to deduce parent from outlineLevel
+  const levelStack: Array<{ level: number; id: string }> = [];
+
+  for (const task of tasks) {
+    const level = task.outlineLevel ?? 1;
+    let parentId = task.parentId;
+
+    if (parentId && taskMap.has(parentId)) {
+      parentMap.set(task.id, parentId);
+    } else if (level > 1) {
+      // Find nearest preceding task in stack with level < current level
+      while (levelStack.length > 0 && levelStack[levelStack.length - 1].level >= level) {
+        levelStack.pop();
+      }
+      if (levelStack.length > 0) {
+        const deducedParentId = levelStack[levelStack.length - 1].id;
+        parentMap.set(task.id, deducedParentId);
+      }
+    }
+
+    while (levelStack.length > 0 && levelStack[levelStack.length - 1].level >= level) {
+      levelStack.pop();
+    }
+    levelStack.push({ level, id: task.id });
+  }
+
+  // Populate childrenMap
+  tasks.forEach(t => childrenMap.set(t.id, []));
+  parentMap.forEach((pId, childId) => {
+    childrenMap.get(pId)?.push(childId);
+  });
+
+  const summaryTaskIds = new Set<string>();
+  childrenMap.forEach((children, pId) => {
+    if (children.length > 0) {
+      summaryTaskIds.add(pId);
+    }
+  });
+
+  // Build descendantsMap
+  const descendantsMap = new Map<string, string[]>();
+  function getDescendants(pId: string): string[] {
+    if (descendantsMap.has(pId)) return descendantsMap.get(pId)!;
+    const direct = childrenMap.get(pId) || [];
+    const all: string[] = [...direct];
+    for (const childId of direct) {
+      all.push(...getDescendants(childId));
+    }
+    descendantsMap.set(pId, all);
+    return all;
+  }
+  summaryTaskIds.forEach(pId => getDescendants(pId));
+
+  return { parentMap, childrenMap, descendantsMap, summaryTaskIds };
+}
+
+/**
+ * Calculates CPM schedule (ES, EF, LS, LF, Float, Critical Path) with WBS Summary Task Rollup
  */
 export function calculateCPM(
   tasksInput: Task[],
@@ -87,11 +192,26 @@ export function calculateCPM(
   const tasks: Task[] = tasksInput.map(t => ({
     ...t,
     predecessors: [...(t.predecessors || [])],
-    duration: Math.max(0, Number(t.duration) || 0),
+    duration: roundDays(Math.max(0, Number(t.duration) || 0)),
+    manualEarlyStart: t.manualEarlyStart !== undefined ? roundDays(t.manualEarlyStart) : undefined,
   }));
 
   const taskMap = new Map<string, Task>();
   tasks.forEach(t => taskMap.set(t.id, t));
+
+  // Resolve hierarchy
+  const { parentMap, childrenMap, descendantsMap, summaryTaskIds } = resolveWBSHierarchy(tasks);
+
+  // Annotate tasks with summary information
+  tasks.forEach(t => {
+    const isSumm = summaryTaskIds.has(t.id);
+    t.isSummary = isSumm;
+    t.subtaskIds = descendantsMap.get(t.id) || [];
+    t.childrenIds = childrenMap.get(t.id) || [];
+    if (parentMap.has(t.id)) {
+      t.parentId = parentMap.get(t.id);
+    }
+  });
 
   // Build adjacency list (predecessor -> successors)
   const successorsMap = new Map<string, string[]>();
@@ -99,8 +219,9 @@ export function calculateCPM(
 
   tasks.forEach(t => {
     successorsMap.set(t.id, []);
-    // Filter predecessors to only existing valid tasks
-    const validPreds = t.predecessors.filter(pId => taskMap.has(pId));
+    // Filter predecessors to only existing valid tasks (and not self or descendants)
+    const descendants = new Set(descendantsMap.get(t.id) || []);
+    const validPreds = t.predecessors.filter(pId => taskMap.has(pId) && pId !== t.id && !descendants.has(pId));
     predecessorsMap.set(t.id, validPreds);
   });
 
@@ -125,50 +246,74 @@ export function calculateCPM(
     };
   }
 
-  // Topological sorting (Kahn's algorithm)
-  const inDegree = new Map<string, number>();
-  tasks.forEach(t => inDegree.set(t.id, predecessorsMap.get(t.id)?.length || 0));
-
-  const queue: string[] = [];
+  // Initialize ES & EF
   tasks.forEach(t => {
-    if ((inDegree.get(t.id) || 0) === 0) {
-      queue.push(t.id);
-    }
+    t.earlyStart = t.manualEarlyStart ?? 0;
+    t.earlyFinish = roundDays((t.earlyStart ?? 0) + t.duration);
   });
 
-  const sortedOrder: string[] = [];
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    sortedOrder.push(current);
+  // Forward Pass using iterative relaxation (handles arbitrary summary hierarchies and DAG dependencies)
+  const MAX_ITER = Math.max(tasks.length * 5, 50);
+  let changed = true;
+  let iter = 0;
 
-    const succs = successorsMap.get(current) || [];
-    for (const succ of succs) {
-      const currentIn = inDegree.get(succ)! - 1;
-      inDegree.set(succ, currentIn);
-      if (currentIn === 0) {
-        queue.push(succ);
+  while (changed && iter < MAX_ITER) {
+    changed = false;
+    iter++;
+
+    for (const task of tasks) {
+      const isSumm = summaryTaskIds.has(task.id);
+
+      if (isSumm) {
+        // Summary task: schedule rolls up from all children
+        const children = childrenMap.get(task.id) || [];
+        if (children.length > 0) {
+          const minES = roundDays(Math.min(...children.map(cId => taskMap.get(cId)!.earlyStart ?? 0)));
+          const maxEF = roundDays(Math.max(...children.map(cId => taskMap.get(cId)!.earlyFinish ?? 0)));
+          const newDur = roundDays(Math.max(0, maxEF - minES));
+
+          if (task.earlyStart !== minES || task.earlyFinish !== maxEF || task.duration !== newDur) {
+            task.earlyStart = minES;
+            task.earlyFinish = maxEF;
+            task.duration = newDur;
+            changed = true;
+          }
+        }
+      } else {
+        // Leaf task: schedule governed by direct predecessors and ancestor predecessors
+        let es = task.manualEarlyStart ?? 0;
+
+        // Direct predecessors
+        const preds = predecessorsMap.get(task.id) || [];
+        for (const pId of preds) {
+          const p = taskMap.get(pId);
+          if (p) {
+            es = Math.max(es, p.earlyFinish ?? 0);
+          }
+        }
+
+        // Predecessors of ancestor summary tasks
+        let currParent = parentMap.get(task.id);
+        while (currParent) {
+          const pPreds = predecessorsMap.get(currParent) || [];
+          for (const ppId of pPreds) {
+            const pp = taskMap.get(ppId);
+            if (pp) {
+              es = Math.max(es, pp.earlyFinish ?? 0);
+            }
+          }
+          currParent = parentMap.get(currParent);
+        }
+
+        es = roundDays(es);
+        const ef = roundDays(es + task.duration);
+        if (task.earlyStart !== es || task.earlyFinish !== ef) {
+          task.earlyStart = es;
+          task.earlyFinish = ef;
+          changed = true;
+        }
       }
     }
-  }
-
-  // Forward Pass: Early Start (ES) & Early Finish (EF)
-  for (const id of sortedOrder) {
-    const task = taskMap.get(id)!;
-    const preds = predecessorsMap.get(id) || [];
-
-    const minStart = task.manualEarlyStart ?? 0;
-
-    if (preds.length === 0) {
-      task.earlyStart = minStart;
-    } else {
-      let maxPredEF = 0;
-      for (const pId of preds) {
-        const predTask = taskMap.get(pId)!;
-        maxPredEF = Math.max(maxPredEF, predTask.earlyFinish ?? 0);
-      }
-      task.earlyStart = Math.max(maxPredEF, minStart);
-    }
-    task.earlyFinish = task.earlyStart + task.duration;
   }
 
   // Find max project early finish
@@ -176,30 +321,92 @@ export function calculateCPM(
   tasks.forEach(t => {
     projectDuration = Math.max(projectDuration, t.earlyFinish ?? 0);
   });
+  projectDuration = roundDays(projectDuration);
 
-  // Backward Pass: Late Finish (LF) & Late Start (LS)
-  // Process in reverse topological order
-  const reverseOrder = [...sortedOrder].reverse();
-  for (const id of reverseOrder) {
-    const task = taskMap.get(id)!;
-    const succs = successorsMap.get(id) || [];
+  // Initialize LF & LS
+  tasks.forEach(t => {
+    t.lateFinish = projectDuration;
+    t.lateStart = roundDays(Math.max(0, projectDuration - t.duration));
+  });
 
-    if (succs.length === 0) {
-      task.lateFinish = projectDuration;
-    } else {
-      let minSuccLS = Infinity;
-      for (const sId of succs) {
-        const succTask = taskMap.get(sId)!;
-        minSuccLS = Math.min(minSuccLS, succTask.lateStart ?? projectDuration);
+  // Backward Pass: Late Finish & Late Start
+  changed = true;
+  iter = 0;
+
+  while (changed && iter < MAX_ITER) {
+    changed = false;
+    iter++;
+
+    for (const task of tasks) {
+      const isSumm = summaryTaskIds.has(task.id);
+
+      if (isSumm) {
+        // Summary task: LS = min(children.LS), LF = max(children.LF)
+        const children = childrenMap.get(task.id) || [];
+        if (children.length > 0) {
+          const minLS = roundDays(Math.min(...children.map(cId => taskMap.get(cId)!.lateStart ?? projectDuration)));
+          const maxLF = roundDays(Math.max(...children.map(cId => taskMap.get(cId)!.lateFinish ?? projectDuration)));
+
+          if (task.lateStart !== minLS || task.lateFinish !== maxLF) {
+            task.lateStart = minLS;
+            task.lateFinish = maxLF;
+            changed = true;
+          }
+        }
+      } else {
+        // Leaf task: constrained by direct successors and ancestor successors
+        let lf = projectDuration;
+
+        // Direct successors
+        const succs = successorsMap.get(task.id) || [];
+        for (const sId of succs) {
+          const s = taskMap.get(sId);
+          if (s) {
+            lf = Math.min(lf, s.lateStart ?? projectDuration);
+          }
+        }
+
+        // Successors of ancestor summary tasks
+        let currParent = parentMap.get(task.id);
+        while (currParent) {
+          const pSuccs = successorsMap.get(currParent) || [];
+          for (const psId of pSuccs) {
+            const ps = taskMap.get(psId);
+            if (ps) {
+              lf = Math.min(lf, ps.lateStart ?? projectDuration);
+            }
+          }
+          currParent = parentMap.get(currParent);
+        }
+
+        lf = roundDays(lf);
+        const ls = roundDays(Math.max(0, lf - task.duration));
+        if (task.lateFinish !== lf || task.lateStart !== ls) {
+          task.lateFinish = lf;
+          task.lateStart = ls;
+          changed = true;
+        }
       }
-      task.lateFinish = minSuccLS === Infinity ? projectDuration : minSuccLS;
     }
-    task.lateStart = task.lateFinish - task.duration;
+  }
 
-    // Total float (slack)
-    task.totalFloat = Math.round((task.lateStart - (task.earlyStart ?? 0)) * 1000) / 1000;
+  // Calculate float, criticality, and dates
+  for (const task of tasks) {
+    const isSumm = summaryTaskIds.has(task.id);
+
+    if (isSumm) {
+      const descendants = descendantsMap.get(task.id) || [];
+      const hasCriticalChild = descendants.some(dId => taskMap.get(dId)?.isCritical);
+      const float = roundDays((task.lateStart ?? 0) - (task.earlyStart ?? 0), 2);
+      task.totalFloat = hasCriticalChild ? 0 : Math.max(0, float);
+      task.isCritical = hasCriticalChild || Math.abs(task.totalFloat) < 0.0001;
+    } else {
+      task.totalFloat = roundDays((task.lateStart ?? 0) - (task.earlyStart ?? 0), 2);
+      task.isCritical = Math.abs(task.totalFloat) < 0.0001;
+    }
 
     // Free float
+    const succs = successorsMap.get(task.id) || [];
     if (succs.length === 0) {
       task.freeFloat = task.totalFloat;
     } else {
@@ -208,11 +415,8 @@ export function calculateCPM(
         const succTask = taskMap.get(sId)!;
         minSuccES = Math.min(minSuccES, succTask.earlyStart ?? projectDuration);
       }
-      task.freeFloat = Math.max(0, Math.round((minSuccES - (task.earlyFinish ?? 0)) * 1000) / 1000);
+      task.freeFloat = Math.max(0, roundDays(minSuccES - (task.earlyFinish ?? 0), 2));
     }
-
-    // Critical check: total float <= epsilon
-    task.isCritical = Math.abs(task.totalFloat) < 0.0001;
 
     // Dates
     task.startDate = addDaysToDate(projectStartDate, task.earlyStart ?? 0);
@@ -237,7 +441,7 @@ export function calculateCPM(
 
   return {
     tasks,
-    criticalPathDuration: projectDuration,
+    criticalPathDuration: roundDays(projectDuration),
     criticalPathTaskIds,
     criticalEdges,
     hasCycle: false,
