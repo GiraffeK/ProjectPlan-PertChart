@@ -35,9 +35,6 @@
 - **匯出 MS Project XML**：一鍵將當前排程匯出為符合微軟官方 Schema 的標準 XML 格式，可在 Microsoft Project、ProjectLibre 或 GanttProject 中直接開啟。
 - **備份匯出**：支援 JSON 格式專案備份。
 
-### 6. 內建 88 天軟體開發專案範本
-- 系統內建載入您參考圖中的完整專案資料（10 個關鍵任務節點，總工期恰為 88 天，涵蓋 `Organize Group`, `Initial Client Meeting`, `Write Initial Contract`, `Learn OpenGL`, `Data to Rendered Map`, `Implement Map Display`, `Integrate All Components`, `Final Testing/Debugging`, `Write Technical Manual`, `Final Presentation / Delivery`）。
-
 ---
 
 ## 快速啟動
@@ -60,4 +57,3 @@ npm run dev
 npm run build
 ```
 產生的最佳化靜態網頁檔案位於 `dist/` 目錄。
->>>>>>> 60aa1cd (feat: initial release of PERT & Gantt Chart Scheduler (MS Project compatible))
