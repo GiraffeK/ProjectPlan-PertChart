@@ -14,6 +14,7 @@ import {
   HelpCircle,
   Save,
   Check,
+  FolderPlus,
 } from 'lucide-react';
 
 export type ViewMode = 'pert' | 'gantt' | 'split' | 'table';
@@ -25,6 +26,7 @@ interface ToolbarProps {
   onChangeProjectName: (name: string) => void;
   onAddTask: () => void;
   onSave: () => void;
+  onSaveAs?: () => void;
   isDirty?: boolean;
   lastSavedTime?: string | null;
   onLoadSample: () => void;
@@ -45,6 +47,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onChangeProjectName,
   onAddTask,
   onSave,
+  onSaveAs,
   isDirty,
   lastSavedTime,
   onLoadSample,
@@ -174,27 +177,47 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Right: Actions */}
       <div className="flex items-center space-x-2">
-        {/* Save Button */}
+        {/* Save Button (Manual Save to original file) */}
         <button
           onClick={onSave}
-          title="儲存專案 (快捷鍵 Ctrl + S) - 自動同步至本機瀏覽器"
+          title={`手動儲存至原檔「${projectName}」 (快捷鍵 Ctrl + S)`}
           className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
         >
           <Save size={14} />
           <span>儲存</span>
         </button>
 
-        {/* Save Status Badge */}
+        {/* Save As Button */}
+        {onSaveAs && (
+          <button
+            onClick={onSaveAs}
+            title="專案另存新檔 (以新名稱或下載備份)"
+            className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer border border-slate-600"
+          >
+            <FolderPlus size={14} />
+            <span>另存新檔</span>
+          </button>
+        )}
+
+        {/* Autosave Status Badge */}
         <div className="hidden lg:flex items-center text-[11px] font-mono pr-1">
           {isDirty ? (
-            <span className="flex items-center space-x-1 text-amber-400" title="有尚未寫入本機的最新變更">
+            <span
+              className="flex items-center space-x-1 text-amber-400"
+              title={`變更自動備份至 [${projectName}_autosave]`}
+            >
               <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
               <span>自動儲存中...</span>
             </span>
           ) : (
-            <span className="flex items-center space-x-1 text-emerald-400/90" title="所有變更已自動保存在本機瀏覽器">
+            <span
+              className="flex items-center space-x-1 text-emerald-400/90"
+              title={`已自動儲存至 [${projectName}_autosave]`}
+            >
               <Check size={13} className="text-emerald-400" />
-              <span>已儲存 {lastSavedTime ? `(${lastSavedTime})` : ''}</span>
+              <span>
+                已自動存檔 [{projectName}_autosave] {lastSavedTime ? `(${lastSavedTime})` : ''}
+              </span>
             </span>
           )}
         </div>

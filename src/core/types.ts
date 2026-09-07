@@ -15,6 +15,13 @@ export interface Task {
   category?: string; // e.g. "Research/Learn", "Design", "Coding and Component Testing", "Documentation"
   predecessors: string[]; // List of task IDs this task depends on (Finish-to-Start default)
   
+  // WBS / Hierarchy
+  outlineLevel?: number; // 1 = root, 2 = subtask, etc. (MS Project compatible)
+  parentId?: string; // parent task ID if subtask
+  
+  // Schedule overrides
+  manualEarlyStart?: number; // manual start day offset in Gantt chart
+  
   // CPM Calculated fields
   earlyStart?: number; // day offset from project start
   earlyFinish?: number;

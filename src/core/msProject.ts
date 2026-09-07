@@ -89,7 +89,7 @@ export function exportToMSProjectXML(project: ProjectData): string {
       <CreateDate>${startDateTime}</CreateDate>
       <WBS>${index + 1}</WBS>
       <OutlineNumber>${index + 1}</OutlineNumber>
-      <OutlineLevel>1</OutlineLevel>
+      <OutlineLevel>${task.outlineLevel || 1}</OutlineLevel>
       <Priority>500</Priority>
       <Start>${taskStart}</Start>
       <Finish>${taskFinish}</Finish>
@@ -189,6 +189,7 @@ export function parseMSProjectXML(xmlContent: string): {
       name: string;
       duration: number;
       predUids: number[];
+      outlineLevel?: number;
     }> = [];
 
     let validCounter = 1;
@@ -219,8 +220,11 @@ export function parseMSProjectXML(xmlContent: string): {
         }
       });
 
+      const outlineLevelStr = taskEl.querySelector('OutlineLevel')?.textContent?.trim();
+      const outlineLevel = outlineLevelStr ? parseInt(outlineLevelStr, 10) : 1;
+
       uidToTaskIdMap.set(uid, id);
-      rawTasks.push({ uid, id, name, duration, predUids });
+      rawTasks.push({ uid, id, name, duration, predUids, outlineLevel });
       validCounter++;
     });
 
@@ -235,6 +239,7 @@ export function parseMSProjectXML(xmlContent: string): {
         name: rt.name,
         duration: rt.duration,
         predecessors,
+        outlineLevel: rt.outlineLevel,
       };
     });
 

@@ -156,15 +156,17 @@ export function calculateCPM(
     const task = taskMap.get(id)!;
     const preds = predecessorsMap.get(id) || [];
 
+    const minStart = task.manualEarlyStart ?? 0;
+
     if (preds.length === 0) {
-      task.earlyStart = 0;
+      task.earlyStart = minStart;
     } else {
       let maxPredEF = 0;
       for (const pId of preds) {
         const predTask = taskMap.get(pId)!;
         maxPredEF = Math.max(maxPredEF, predTask.earlyFinish ?? 0);
       }
-      task.earlyStart = maxPredEF;
+      task.earlyStart = Math.max(maxPredEF, minStart);
     }
     task.earlyFinish = task.earlyStart + task.duration;
   }

@@ -9,6 +9,7 @@ import { TaskTable } from './components/TaskTable';
 import { Toolbar, type ViewMode } from './components/Toolbar';
 import { TaskModal } from './components/TaskModal';
 import { MppGuideModal } from './components/MppGuideModal';
+import { SaveAsModal } from './components/SaveAsModal';
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 
 const DEFAULT_INITIAL_TASK: Task[] = [
@@ -64,6 +65,7 @@ export function App() {
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMppGuideOpen, setIsMppGuideOpen] = useState(false);
+  const [isSaveAsOpen, setIsSaveAsOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [pendingTaskPos, setPendingTaskPos] = useState<{ x: number; y: number } | null>(null);
   const [pendingPredecessors, setPendingPredecessors] = useState<string[]>([]);
@@ -83,7 +85,9 @@ export function App() {
     return calculateCPM(tasks, startDate);
   }, [tasks, startDate]);
 
-  // Save project to localStorage
+  // Save project:
+  // - manual save writes to original project name: pertchart_project_${projectName}
+  // - autosave writes to [projectName]_autosave: pertchart_project_${projectName}_autosave
   const handleSaveProject = (manual: boolean = true) => {
     try {
       const data = {
@@ -96,12 +100,148 @@ export function App() {
       localStorage.setItem(STORAGE_TIME_KEY, nowStr);
       setLastSavedTime(nowStr);
       setIsDirty(false);
+
       if (manual) {
-        showToast(`💾 專案「${projectName}」已成功儲存至本機！下次開啟自動載入。`, 'success');
+        localStorage.setItem(`pertchart_project_${projectName}`, JSON.stringify(data));
+        showToast(`💾 專案已手動儲存至原檔「${projectName}」！下次開啟自動載入。`, 'success');
+      } else {
+        localStorage.setItem(`pertchart_project_${projectName}_autosave`, JSON.stringify(data));
       }
     } catch (err: any) {
       showToast('儲存失敗：' + (err.message || err), 'error');
     }
+  };
+
+  // Handle Save As (另存新檔)
+  const handleSaveAs = (newName: string, exportType: 'none' | 'xml' | 'json') => {
+    try {
+      const trimmed = newName.trim();
+      setProjectName(trimmed);
+      const data = {
+        projectName: trimmed,
+        startDate,
+        tasks,
+      };
+      const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      localStorage.setItem(`pertchart_project_${trimmed}`, JSON.stringify(data));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      localStorage.setItem(STORAGE_TIME_KEY, nowStr);
+      setLastSavedTime(nowStr);
+      setIsDirty(false);
+
+      if (exportType === 'xml') {
+        const projectData: ProjectData = {
+          id: 'msp-export',
+          name: trimmed,
+          startDate,
+          tasks: cpmResult.tasks,
+          criticalPathDuration: cpmResult.criticalPathDuration,
+          criticalPathTaskIds: cpmResult.criticalPathTaskIds,
+        };
+        const xmlContent = exportToMSProjectXML(projectData);
+        const blob = new Blob([xmlContent], { type: 'application/xml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${trimmed.toLowerCase().replace(/\s+/g, '_')}_msproject.xml`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else if (exportType === 'json') {
+        const blob = new Blob([JSON.stringify(data, null, 2)], {
+          type: 'application/json;charset=utf-8',
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${trimmed.toLowerCase().replace(/\s+/g, '_')}_backup.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      showToast(`🎉 已成功另存新檔為「${trimmed}」！`, 'success');
+    } catch (err: any) {
+      showToast('另存新檔失敗：' + (err.message || err), 'error');
+    }
+  };
+
+  // Update schedule (start offset or duration) from Gantt drag
+  const handleUpdateTaskSchedule = (
+    taskId: string,
+    updates: { manualEarlyStart?: number; duration?: number }
+  ) => {
+    setTasks(prev =>
+      prev.map(t =>
+        t.id === taskId
+          ? {
+              ...t,
+              manualEarlyStart:
+                updates.manualEarlyStart !== undefined
+                  ? updates.manualEarlyStart
+                  : t.manualEarlyStart,
+              duration: updates.duration !== undefined ? updates.duration : t.duration,
+            }
+          : t
+      )
+    );
+  };
+
+  // Indent task as subtask
+  const handleIndentTask = (task: Task) => {
+    setTasks(prev => {
+      const idx = prev.findIndex(t => t.id === task.id);
+      if (idx < 0) return prev;
+      const currentLevel = prev[idx].outlineLevel || 1;
+      const newLevel = currentLevel + 1;
+      let parentId = prev[idx].parentId;
+      for (let i = idx - 1; i >= 0; i--) {
+        const pLevel = prev[i].outlineLevel || 1;
+        if (pLevel < newLevel) {
+          parentId = prev[i].id;
+          break;
+        }
+      }
+      return prev.map((t, i) =>
+        i === idx
+          ? {
+              ...t,
+              outlineLevel: newLevel,
+              parentId: parentId || (idx > 0 ? prev[idx - 1].id : undefined),
+            }
+          : t
+      );
+    });
+    showToast(`已將任務 [${task.id}] 縮排為子任務 (階層 ${(task.outlineLevel || 1) + 1})`, 'info');
+  };
+
+  // Outdent task
+  const handleOutdentTask = (task: Task) => {
+    setTasks(prev => {
+      const idx = prev.findIndex(t => t.id === task.id);
+      if (idx < 0) return prev;
+      const currentLevel = prev[idx].outlineLevel || 1;
+      if (currentLevel <= 1) return prev;
+      const newLevel = currentLevel - 1;
+      let parentId: string | undefined = undefined;
+      if (newLevel > 1) {
+        for (let i = idx - 1; i >= 0; i--) {
+          const pLevel = prev[i].outlineLevel || 1;
+          if (pLevel < newLevel) {
+            parentId = prev[i].id;
+            break;
+          }
+        }
+      }
+      return prev.map((t, i) =>
+        i === idx
+          ? { ...t, outlineLevel: newLevel, parentId }
+          : t
+      );
+    });
+    showToast(`已將任務 [${task.id}] 凸排 (階層 ${Math.max(1, (task.outlineLevel || 1) - 1)})`, 'info');
   };
 
   // Auto-save debounced when tasks, projectName, or startDate changes
@@ -369,6 +509,7 @@ export function App() {
           setIsModalOpen(true);
         }}
         onSave={() => handleSaveProject(true)}
+        onSaveAs={() => setIsSaveAsOpen(true)}
         isDirty={isDirty}
         lastSavedTime={lastSavedTime}
         onLoadSample={handleLoadSample}
@@ -408,6 +549,9 @@ export function App() {
             onAddDependency={handleAddDependency}
             onCreateTaskAt={handleCreateTaskAt}
             onUpdateTaskPosition={handleUpdateTaskPosition}
+            onIndentTask={handleIndentTask}
+            onOutdentTask={handleOutdentTask}
+            onDeleteTask={handleDeleteTask}
           />
         )}
 
@@ -421,6 +565,10 @@ export function App() {
               setEditingTask(t);
               setIsModalOpen(true);
             }}
+            onUpdateTaskSchedule={handleUpdateTaskSchedule}
+            onIndentTask={handleIndentTask}
+            onOutdentTask={handleOutdentTask}
+            onDeleteTask={handleDeleteTask}
           />
         )}
 
@@ -443,6 +591,9 @@ export function App() {
                 onAddDependency={handleAddDependency}
                 onCreateTaskAt={handleCreateTaskAt}
                 onUpdateTaskPosition={handleUpdateTaskPosition}
+                onIndentTask={handleIndentTask}
+                onOutdentTask={handleOutdentTask}
+                onDeleteTask={handleDeleteTask}
               />
             </div>
 
@@ -460,6 +611,10 @@ export function App() {
                   setEditingTask(t);
                   setIsModalOpen(true);
                 }}
+                onUpdateTaskSchedule={handleUpdateTaskSchedule}
+                onIndentTask={handleIndentTask}
+                onOutdentTask={handleOutdentTask}
+                onDeleteTask={handleDeleteTask}
               />
             </div>
           </div>
@@ -494,6 +649,14 @@ export function App() {
         initialTask={editingTask}
         existingTasks={tasks}
         defaultPredecessors={pendingPredecessors}
+      />
+
+      {/* Save As Modal */}
+      <SaveAsModal
+        isOpen={isSaveAsOpen}
+        onClose={() => setIsSaveAsOpen(false)}
+        currentProjectName={projectName}
+        onSaveAs={handleSaveAs}
       />
 
       {/* MPP Guide Modal */}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { Task } from '../core/types';
 import { formatDateForDisplay } from '../core/cpmEngine';
 import dagre from 'dagre';
+import { TaskContextMenu } from './TaskContextMenu';
 import {
   ZoomIn,
   ZoomOut,
@@ -20,6 +21,9 @@ interface PertChartProps {
   onAddDependency?: (fromId: string, toId: string) => void;
   onCreateTaskAt?: (pos: { x: number; y: number }, predecessorId?: string) => void;
   onUpdateTaskPosition?: (taskId: string, x: number, y: number) => void;
+  onIndentTask?: (task: Task) => void;
+  onOutdentTask?: (task: Task) => void;
+  onDeleteTask?: (taskId: string) => void;
 }
 
 interface NodePosition {
@@ -41,6 +45,9 @@ export const PertChart: React.FC<PertChartProps> = ({
   onAddDependency,
   onCreateTaskAt,
   onUpdateTaskPosition,
+  onIndentTask,
+  onOutdentTask,
+  onDeleteTask,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map());
@@ -50,6 +57,11 @@ export const PertChart: React.FC<PertChartProps> = ({
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [showDetailedBox, setShowDetailedBox] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    task: Task;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Synchronized refs for latency-free window mouse tracking
   const positionsRef = useRef(positions);
@@ -716,6 +728,15 @@ export const PertChart: React.FC<PertChartProps> = ({
                 willChange: draggingTaskId === task.id ? 'left, top' : 'auto',
               }}
               onMouseDown={e => handleBorderMouseDown(e, task.id)}
+              onContextMenu={e => {
+                e.preventDefault();
+                e.stopPropagation();
+                setContextMenu({
+                  task,
+                  x: e.clientX,
+                  y: e.clientY,
+                });
+              }}
               onMouseEnter={() => {
                 if (connectionDrag && connectionDrag.fromId !== task.id) {
                   setTargetHoverId(task.id);
@@ -726,7 +747,7 @@ export const PertChart: React.FC<PertChartProps> = ({
                   setTargetHoverId(null);
                 }
               }}
-              title="四周（移動圖示）：拖曳可調整此任務框位置"
+              title="四周（移動圖示）：拖曳可調整此任務框位置；右鍵點擊：縮排/凸排子任務"
               className={`group pointer-events-auto rounded-lg bg-slate-200/90 cursor-move p-[5px] select-none ${
                 draggingTaskId === task.id
                   ? '!transition-none shadow-2xl z-40 ring-2 ring-blue-500 scale-[1.01]'
@@ -758,9 +779,27 @@ export const PertChart: React.FC<PertChartProps> = ({
                 </div>
               )}
 
+              {/* Subtask outline badge if outlineLevel > 1 */}
+              {(task.outlineLevel || 1) > 1 && (
+                <div className="absolute -top-3 right-2 z-10 pointer-events-none">
+                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-indigo-50 border-indigo-200 text-indigo-700 shadow-2xs">
+                    ↳ 子任務 (L{task.outlineLevel})
+                  </span>
+                </div>
+              )}
+
               {/* Central Area: Finger Cursor (cursor-pointer), drag to connect, click to edit */}
               <div
                 onMouseDown={e => handleCenterMouseDown(e, task.id)}
+                onContextMenu={e => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setContextMenu({
+                    task,
+                    x: e.clientX,
+                    y: e.clientY,
+                  });
+                }}
                 title="中央（手指圖示）：拖曳拉出連線至其他任務，點擊編輯項目與天數"
                 className="w-full h-full cursor-pointer bg-white rounded-md overflow-hidden border border-slate-300"
               >
@@ -845,6 +884,31 @@ export const PertChart: React.FC<PertChartProps> = ({
           );
         })}
       </div>
+
+      {/* Task Context Menu (Right Click) */}
+      <TaskContextMenu
+        task={contextMenu?.task || null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        onClose={() => setContextMenu(null)}
+        onIndent={task => {
+          onIndentTask?.(task);
+          setContextMenu(null);
+        }}
+        onOutdent={task => {
+          onOutdentTask?.(task);
+          setContextMenu(null);
+        }}
+        onEdit={task => {
+          onSelectTask(task);
+          setContextMenu(null);
+        }}
+        onDelete={taskId => {
+          onDeleteTask?.(taskId);
+          setContextMenu(null);
+        }}
+        canIndent={true}
+        canOutdent={((contextMenu?.task?.outlineLevel || 1) > 1)}
+      />
     </div>
   );
 };
