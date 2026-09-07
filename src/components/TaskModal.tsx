@@ -1,0 +1,247 @@
+import React, { useState, useEffect, useRef } from 'react';
+import type { Task } from '../core/types';
+import { X, Trash2, Check } from 'lucide-react';
+
+interface TaskModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (taskData: Partial<Task>) => void;
+  onDelete?: (taskId: string) => void;
+  initialTask?: Task | null;
+  existingTasks: Task[];
+  defaultPredecessors?: string[];
+}
+
+export const TaskModal: React.FC<TaskModalProps> = ({
+  isOpen,
+  onClose,
+  onSave,
+  onDelete,
+  initialTask,
+  existingTasks,
+  defaultPredecessors,
+}) => {
+  const [name, setName] = useState('');
+  const [duration, setDuration] = useState(1);
+  const [category, setCategory] = useState('');
+  const [predecessors, setPredecessors] = useState<string[]>([]);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (initialTask) {
+      setName(initialTask.name);
+      setDuration(initialTask.duration);
+      setCategory(initialTask.category || '');
+      setPredecessors(initialTask.predecessors || []);
+    } else {
+      setName('');
+      setDuration(1);
+      setCategory('');
+      setPredecessors(defaultPredecessors || []);
+    }
+
+    if (isOpen) {
+      setTimeout(() => {
+        nameInputRef.current?.focus();
+        nameInputRef.current?.select();
+      }, 50);
+    }
+  }, [initialTask, isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+
+    onSave({
+      id: initialTask?.id,
+      name: name.trim(),
+      duration: Math.max(0, Number(duration)),
+      category: category.trim() || undefined,
+      predecessors,
+    });
+    onClose();
+  };
+
+  const togglePredecessor = (pId: string) => {
+    setPredecessors(prev =>
+      prev.includes(pId) ? prev.filter(id => id !== pId) : [...prev, pId]
+    );
+  };
+
+  // Predecessors list should exclude current task to prevent immediate self-loop
+  const availablePredecessors = existingTasks.filter(
+    t => !initialTask || t.id !== initialTask.id
+  );
+
+  const predefinedCategories = [
+    'Initiation',
+    'Research/Learn',
+    'Design',
+    'Coding and Component Testing',
+    'Documentation',
+    'Delivery',
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50/70">
+          <h3 className="text-lg font-semibold text-slate-800">
+            {initialTask ? `編輯任務：${initialTask.id}` : '新增任務 (New Task)'}
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              任務名稱 (Task Name) <span className="text-red-500">*</span>
+            </label>
+            <input
+              ref={nameInputRef}
+              type="text"
+              required
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g. Implement GUI or Write Contract"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                工期 (Duration in Days) <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                required
+                value={duration}
+                onChange={e => setDuration(parseFloat(e.target.value) || 0)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                分類 / 階段 (Category)
+              </label>
+              <input
+                type="text"
+                list="category-suggestions"
+                value={category}
+                onChange={e => setCategory(e.target.value)}
+                placeholder="Select or type..."
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <datalist id="category-suggestions">
+                {predefinedCategories.map(cat => (
+                  <option key={cat} value={cat} />
+                ))}
+              </datalist>
+            </div>
+          </div>
+
+          {/* Predecessors selector */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              前置任務關聯 (Predecessors / Dependencies)
+            </label>
+            <div className="text-xs text-slate-500 mb-2">
+              選擇此任務必須在哪些任務完成後才能開始 (Finish-to-Start)：
+            </div>
+            <div className="max-h-44 overflow-y-auto border border-slate-200 rounded-lg p-2 divide-y divide-slate-100 bg-slate-50/50">
+              {availablePredecessors.length === 0 ? (
+                <div className="text-xs text-slate-400 py-3 text-center">
+                  尚無其他任務可作為前置任務
+                </div>
+              ) : (
+                availablePredecessors.map(task => {
+                  const isSelected = predecessors.includes(task.id);
+                  return (
+                    <div
+                      key={task.id}
+                      onClick={() => togglePredecessor(task.id)}
+                      className={`flex items-center justify-between p-2 rounded cursor-pointer transition-colors text-xs ${
+                        isSelected
+                          ? 'bg-blue-50 text-blue-900 font-medium'
+                          : 'hover:bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2 truncate">
+                        <span
+                          className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                            isSelected
+                              ? 'bg-blue-600 border-blue-600 text-white'
+                              : 'border-slate-300 bg-white'
+                          }`}
+                        >
+                          {isSelected && <Check size={12} />}
+                        </span>
+                        <span className="font-mono text-slate-500 font-normal">
+                          [{task.id}]
+                        </span>
+                        <span className="truncate">{task.name}</span>
+                      </div>
+                      <span className="text-slate-400 shrink-0 ml-2">
+                        {task.duration} 天
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Footer Actions */}
+          <div className="flex items-center justify-between pt-4 border-t border-slate-200 mt-6">
+            {initialTask && onDelete ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`確定要刪除任務 [${initialTask.id}] ${initialTask.name} 嗎？`)) {
+                    onDelete(initialTask.id);
+                    onClose();
+                  }
+                }}
+                className="flex items-center space-x-1 text-red-600 hover:text-red-700 hover:bg-red-50 px-3 py-2 rounded-lg text-sm transition-colors"
+              >
+                <Trash2 size={16} />
+                <span>刪除任務</span>
+              </button>
+            ) : (
+              <div />
+            )}
+
+            <div className="flex items-center space-x-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium shadow-sm transition-colors"
+              >
+                {initialTask ? '儲存變更' : '建立任務'}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
