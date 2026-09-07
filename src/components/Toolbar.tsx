@@ -12,6 +12,8 @@ import {
   Calendar,
   AlertOctagon,
   HelpCircle,
+  Save,
+  Check,
 } from 'lucide-react';
 
 export type ViewMode = 'pert' | 'gantt' | 'split' | 'table';
@@ -19,7 +21,12 @@ export type ViewMode = 'pert' | 'gantt' | 'split' | 'table';
 interface ToolbarProps {
   viewMode: ViewMode;
   onChangeViewMode: (mode: ViewMode) => void;
+  projectName: string;
+  onChangeProjectName: (name: string) => void;
   onAddTask: () => void;
+  onSave: () => void;
+  isDirty?: boolean;
+  lastSavedTime?: string | null;
   onLoadSample: () => void;
   onExportMSProject: () => void;
   onImportMSProject: (file: File) => void;
@@ -34,7 +41,12 @@ interface ToolbarProps {
 export const Toolbar: React.FC<ToolbarProps> = ({
   viewMode,
   onChangeViewMode,
+  projectName,
+  onChangeProjectName,
   onAddTask,
+  onSave,
+  isDirty,
+  lastSavedTime,
   onLoadSample,
   onExportMSProject,
   onImportMSProject,
@@ -63,13 +75,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-md">
             <Network size={18} className="text-white" />
           </div>
-          <div>
+          <div className="flex items-center space-x-2">
             <h1 className="text-sm font-bold tracking-tight text-white flex items-center space-x-1.5">
-              <span>PERT & Gantt Chart</span>
+              <span>PERT & Gantt</span>
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                MS Project 相容
+                MS Project
               </span>
             </h1>
+            <div className="hidden sm:flex items-center space-x-1 bg-slate-800/90 px-2 py-0.5 rounded-md border border-slate-700">
+              <input
+                type="text"
+                value={projectName}
+                onChange={e => onChangeProjectName(e.target.value)}
+                placeholder="專案名稱"
+                title="點擊修改專案名稱"
+                className="bg-transparent text-xs font-semibold text-slate-200 focus:text-white focus:outline-none w-24 md:w-32 lg:w-44 placeholder-slate-500 truncate"
+              />
+            </div>
           </div>
         </div>
 
@@ -152,6 +174,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {/* Right: Actions */}
       <div className="flex items-center space-x-2">
+        {/* Save Button */}
+        <button
+          onClick={onSave}
+          title="儲存專案 (快捷鍵 Ctrl + S) - 自動同步至本機瀏覽器"
+          className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+        >
+          <Save size={14} />
+          <span>儲存</span>
+        </button>
+
+        {/* Save Status Badge */}
+        <div className="hidden lg:flex items-center text-[11px] font-mono pr-1">
+          {isDirty ? (
+            <span className="flex items-center space-x-1 text-amber-400" title="有尚未寫入本機的最新變更">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              <span>自動儲存中...</span>
+            </span>
+          ) : (
+            <span className="flex items-center space-x-1 text-emerald-400/90" title="所有變更已自動保存在本機瀏覽器">
+              <Check size={13} className="text-emerald-400" />
+              <span>已儲存 {lastSavedTime ? `(${lastSavedTime})` : ''}</span>
+            </span>
+          )}
+        </div>
+
         <button
           onClick={onAddTask}
           className="flex items-center space-x-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"

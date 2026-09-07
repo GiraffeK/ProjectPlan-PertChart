@@ -51,6 +51,16 @@ export const PertChart: React.FC<PertChartProps> = ({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [showDetailedBox, setShowDetailedBox] = useState(false);
 
+  // Synchronized refs for latency-free window mouse tracking
+  const positionsRef = useRef(positions);
+  positionsRef.current = positions;
+  const transformRef = useRef(transform);
+  transformRef.current = transform;
+  const dragOffsetRef = useRef(dragOffset);
+  dragOffsetRef.current = dragOffset;
+  const draggingTaskIdRef = useRef(draggingTaskId);
+  draggingTaskIdRef.current = draggingTaskId;
+
   // Drag-to-draw state
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
@@ -187,14 +197,80 @@ export const PertChart: React.FC<PertChartProps> = ({
     const pos = positions.get(taskId);
     if (pos) {
       setDraggingTaskId(taskId);
-      const mouseCanvasX = (e.clientX - transform.x) / transform.scale;
-      const mouseCanvasY = (e.clientY - transform.y) / transform.scale;
-      setDragOffset({
+      draggingTaskIdRef.current = taskId;
+      const rect = containerRef.current?.getBoundingClientRect();
+      const containerLeft = rect ? rect.left : 0;
+      const containerTop = rect ? rect.top : 0;
+      const mouseCanvasX = (e.clientX - containerLeft - transform.x) / transform.scale;
+      const mouseCanvasY = (e.clientY - containerTop - transform.y) / transform.scale;
+      const offset = {
         x: mouseCanvasX - pos.x,
         y: mouseCanvasY - pos.y,
-      });
+      };
+      setDragOffset(offset);
+      dragOffsetRef.current = offset;
     }
   };
+
+  // High-performance window-level mouse move & up listeners while dragging a task node
+  useEffect(() => {
+    if (!draggingTaskId) return;
+
+    let rafId: number | null = null;
+
+    const onWindowMouseMove = (e: MouseEvent) => {
+      const taskId = draggingTaskIdRef.current;
+      if (!taskId || !containerRef.current) return;
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const mouseCanvasX = (e.clientX - rect.left - transformRef.current.x) / transformRef.current.scale;
+      const mouseCanvasY = (e.clientY - rect.top - transformRef.current.y) / transformRef.current.scale;
+
+      const newX = Math.round(mouseCanvasX - dragOffsetRef.current.x);
+      const newY = Math.round(mouseCanvasY - dragOffsetRef.current.y);
+
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+
+      rafId = requestAnimationFrame(() => {
+        setPositions(prev => {
+          const currentPos = prev.get(taskId);
+          if (!currentPos) return prev;
+          if (currentPos.x === newX && currentPos.y === newY) return prev;
+          const next = new Map(prev);
+          next.set(taskId, { ...currentPos, x: newX, y: newY });
+          return next;
+        });
+      });
+    };
+
+    const onWindowMouseUp = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      const taskId = draggingTaskIdRef.current;
+      if (taskId) {
+        const finalPos = positionsRef.current.get(taskId);
+        if (finalPos && onUpdateTaskPosition) {
+          onUpdateTaskPosition(taskId, finalPos.x, finalPos.y);
+        }
+      }
+      setDraggingTaskId(null);
+      draggingTaskIdRef.current = null;
+    };
+
+    window.addEventListener('mousemove', onWindowMouseMove, { passive: true });
+    window.addEventListener('mouseup', onWindowMouseUp);
+
+    return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      window.removeEventListener('mousemove', onWindowMouseMove);
+      window.removeEventListener('mouseup', onWindowMouseUp);
+    };
+  }, [draggingTaskId, onUpdateTaskPosition]);
 
   const handleMouseMove = (e: React.MouseEvent) => {
     // 1. If dragging connection line from center
@@ -227,18 +303,6 @@ export const PertChart: React.FC<PertChartProps> = ({
         x: e.clientX - startPan.x,
         y: e.clientY - startPan.y,
       }));
-    } else if (draggingTaskId) {
-      // 4. If moving task node
-      const currentPos = positions.get(draggingTaskId);
-      if (currentPos) {
-        const newX = Math.round((e.clientX - transform.x) / transform.scale - dragOffset.x);
-        const newY = Math.round((e.clientY - transform.y) / transform.scale - dragOffset.y);
-        setPositions(prev => {
-          const next = new Map(prev);
-          next.set(draggingTaskId, { ...currentPos, x: newX, y: newY });
-          return next;
-        });
-      }
     }
   };
 
@@ -310,16 +374,7 @@ export const PertChart: React.FC<PertChartProps> = ({
       return;
     }
 
-    // 3. If we were dragging an existing task node, persist its final position
-    if (draggingTaskId) {
-      const pos = positions.get(draggingTaskId);
-      if (pos && onUpdateTaskPosition) {
-        onUpdateTaskPosition(draggingTaskId, pos.x, pos.y);
-      }
-    }
-
     setIsPanning(false);
-    setDraggingTaskId(null);
   };
 
   // Double click canvas to quick create at spot
@@ -658,6 +713,7 @@ export const PertChart: React.FC<PertChartProps> = ({
                 top: `${pos.y}px`,
                 width: `${pos.width}px`,
                 minHeight: showDetailedBox ? '110px' : `${pos.height}px`,
+                willChange: draggingTaskId === task.id ? 'left, top' : 'auto',
               }}
               onMouseDown={e => handleBorderMouseDown(e, task.id)}
               onMouseEnter={() => {
@@ -671,7 +727,11 @@ export const PertChart: React.FC<PertChartProps> = ({
                 }
               }}
               title="四周（移動圖示）：拖曳可調整此任務框位置"
-              className={`group pointer-events-auto rounded-lg bg-slate-200/90 transition-all duration-150 cursor-move p-[5px] select-none ${
+              className={`group pointer-events-auto rounded-lg bg-slate-200/90 cursor-move p-[5px] select-none ${
+                draggingTaskId === task.id
+                  ? '!transition-none shadow-2xl z-40 ring-2 ring-blue-500 scale-[1.01]'
+                  : 'transition-[border-color,box-shadow,background-color] duration-150'
+              } ${
                 isCritical
                   ? 'border-2 border-red-600 shadow-md shadow-red-200/60'
                   : 'border border-slate-400 shadow-xs hover:border-blue-500 hover:shadow-md'

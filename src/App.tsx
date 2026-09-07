@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { Task, ProjectData } from './core/types';
 import { calculateCPM } from './core/cpmEngine';
 import { SAMPLE_PROJECT_TASKS } from './data/sampleProject';
@@ -24,11 +24,42 @@ const DEFAULT_INITIAL_TASK: Task[] = [
   },
 ];
 
+const STORAGE_KEY = 'pertchart_project_data';
+const STORAGE_TIME_KEY = 'pertchart_project_last_saved';
+
+const loadInitialProject = (): { tasks: Task[]; projectName: string; startDate: string } => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed.tasks) && parsed.tasks.length > 0) {
+        return {
+          tasks: parsed.tasks,
+          projectName: parsed.projectName || 'My Project',
+          startDate: parsed.startDate || new Date().toISOString().split('T')[0],
+        };
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load project from localStorage', e);
+  }
+  return {
+    tasks: DEFAULT_INITIAL_TASK,
+    projectName: 'My Project',
+    startDate: new Date().toISOString().split('T')[0],
+  };
+};
+
 export function App() {
-  const [tasks, setTasks] = useState<Task[]>(DEFAULT_INITIAL_TASK);
-  const [projectName, setProjectName] = useState<string>('My Project');
-  const [startDate, setStartDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const initialData = useMemo(() => loadInitialProject(), []);
+  const [tasks, setTasks] = useState<Task[]>(initialData.tasks);
+  const [projectName, setProjectName] = useState<string>(initialData.projectName);
+  const [startDate, setStartDate] = useState<string>(initialData.startDate);
   const [viewMode, setViewMode] = useState<ViewMode>('pert');
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(() => {
+    return localStorage.getItem(STORAGE_TIME_KEY) || null;
+  });
+  const [isDirty, setIsDirty] = useState<boolean>(false);
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -51,6 +82,48 @@ export function App() {
   const cpmResult = useMemo(() => {
     return calculateCPM(tasks, startDate);
   }, [tasks, startDate]);
+
+  // Save project to localStorage
+  const handleSaveProject = (manual: boolean = true) => {
+    try {
+      const data = {
+        projectName,
+        startDate,
+        tasks,
+      };
+      const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      localStorage.setItem(STORAGE_TIME_KEY, nowStr);
+      setLastSavedTime(nowStr);
+      setIsDirty(false);
+      if (manual) {
+        showToast(`💾 專案「${projectName}」已成功儲存至本機！下次開啟自動載入。`, 'success');
+      }
+    } catch (err: any) {
+      showToast('儲存失敗：' + (err.message || err), 'error');
+    }
+  };
+
+  // Auto-save debounced when tasks, projectName, or startDate changes
+  useEffect(() => {
+    setIsDirty(true);
+    const timer = setTimeout(() => {
+      handleSaveProject(false);
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [tasks, projectName, startDate]);
+
+  // Keyboard shortcut Ctrl+S / Cmd+S to manual save
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSaveProject(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [tasks, projectName, startDate]);
 
   // Handle drag-to-draw create task at coordinate (with optional predecessor)
   const handleCreateTaskAt = (pos: { x: number; y: number }, predecessorId?: string) => {
@@ -289,10 +362,15 @@ export function App() {
       <Toolbar
         viewMode={viewMode}
         onChangeViewMode={setViewMode}
+        projectName={projectName}
+        onChangeProjectName={setProjectName}
         onAddTask={() => {
           setEditingTask(null);
           setIsModalOpen(true);
         }}
+        onSave={() => handleSaveProject(true)}
+        isDirty={isDirty}
+        lastSavedTime={lastSavedTime}
         onLoadSample={handleLoadSample}
         onExportMSProject={handleExportMSProject}
         onImportMSProject={handleImportMSProject}
