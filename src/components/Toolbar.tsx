@@ -40,6 +40,7 @@ interface ToolbarProps {
   onImportMSProject: (file: File) => void;
   onExportJSON: () => void;
   onOpenMppGuide?: () => void;
+  onOpenHelp?: () => void;
   startDate: string;
   onChangeStartDate: (date: string) => void;
   criticalPathDuration: number;
@@ -65,6 +66,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onImportMSProject,
   onExportJSON,
   onOpenMppGuide,
+  onOpenHelp,
   startDate,
   onChangeStartDate,
   criticalPathDuration,
@@ -182,6 +184,18 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <span className="font-bold text-red-400 font-mono">{criticalPathDuration} 天</span>
             </div>
           </>
+        )}
+
+        {/* HELP Button */}
+        {onOpenHelp && (
+          <button
+            onClick={onOpenHelp}
+            title="查看 Microsoft Project 操作體驗與使用說明 (HELP)"
+            className="flex items-center space-x-1.5 px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
+          >
+            <HelpCircle size={14} className="text-amber-400" />
+            <span>HELP</span>
+          </button>
         )}
       </div>
 

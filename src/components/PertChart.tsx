@@ -612,20 +612,6 @@ export const PertChart: React.FC<PertChartProps> = ({
         </div>
       </div>
 
-      {/* Drawing & operation mode hint banner */}
-      <div className="absolute top-4 left-6 z-20 pointer-events-none">
-        <div className="bg-white/95 backdrop-blur-xs px-4 py-2 rounded-xl border border-slate-200 shadow-md text-xs text-slate-700 flex flex-col space-y-1">
-          <div className="flex items-center space-x-1.5">
-            <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
-            <span className="font-bold text-slate-900">Microsoft Project 操作體驗：</span>
-          </div>
-          <div className="text-[11px] text-slate-600 flex flex-wrap gap-x-4 gap-y-0.5">
-            <span>👉 <b>框中央 (手指圖示)</b>：拖曳可拉出箭頭連線至別的任務；點擊編輯</span>
-            <span>👉 <b>四周邊框 (移動圖示)</b>：拖曳移動任務框位置</span>
-            <span>👉 <b>按住 Shift 拖曳畫布</b>：直接拉出新任務框</span>
-          </div>
-        </div>
-      </div>
 
       {/* Floating Control Toolbar */}
       <div

@@ -10,6 +10,7 @@ import { Toolbar, type ViewMode } from './components/Toolbar';
 import { TaskModal } from './components/TaskModal';
 import { MppGuideModal } from './components/MppGuideModal';
 import { SaveAsModal } from './components/SaveAsModal';
+import { HelpModal } from './components/HelpModal';
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 
 const DEFAULT_INITIAL_TASK: Task[] = [
@@ -110,6 +111,7 @@ export function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isMppGuideOpen, setIsMppGuideOpen] = useState(false);
   const [isSaveAsOpen, setIsSaveAsOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [pendingTaskPos, setPendingTaskPos] = useState<{ x: number; y: number } | null>(null);
   const [pendingPredecessors, setPendingPredecessors] = useState<string[]>([]);
@@ -1188,6 +1190,7 @@ export function App() {
         onImportMSProject={handleImportMSProject}
         onExportJSON={handleExportJSON}
         onOpenMppGuide={() => setIsMppGuideOpen(true)}
+        onOpenHelp={() => setIsHelpOpen(true)}
         startDate={startDate}
         onChangeStartDate={setStartDate}
         criticalPathDuration={cpmResult.criticalPathDuration}
@@ -1378,6 +1381,12 @@ export function App() {
       <MppGuideModal
         isOpen={isMppGuideOpen}
         onClose={() => setIsMppGuideOpen(false)}
+      />
+
+      {/* HELP / Operation Guide Modal */}
+      <HelpModal
+        isOpen={isHelpOpen}
+        onClose={() => setIsHelpOpen(false)}
       />
 
       {/* Toast Floating Notification */}
