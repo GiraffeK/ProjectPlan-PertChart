@@ -78,7 +78,6 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
 
     onSave({
       id: initialTask?.id,
@@ -153,12 +152,11 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
-              任務名稱 (Task Name) <span className="text-red-500">*</span>
+              任務名稱 (Task Name)
             </label>
             <input
               ref={nameInputRef}
               type="text"
-              required
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder="e.g. Implement GUI or Write Contract"

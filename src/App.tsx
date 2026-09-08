@@ -622,7 +622,7 @@ export function App() {
           if (t.id === taskData.id) {
             return {
               ...t,
-              name: taskData.name || t.name,
+              name: taskData.name !== undefined ? taskData.name : t.name,
               duration: taskData.duration ?? t.duration,
               category: taskData.category,
               predecessors: newPreds,
@@ -678,7 +678,7 @@ export function App() {
       const newTask: Task = {
         id: newId,
         uid: maxNum + 1,
-        name: taskData.name || `Task ${newId}`,
+        name: taskData.name !== undefined ? taskData.name : '',
         duration: taskData.duration ?? 1,
         category: taskData.category,
         outlineLevel: outlineLevel || 1,
@@ -708,7 +708,7 @@ export function App() {
       });
       setPendingTaskPos(null);
       setPendingPredecessors([]);
-      showToast(`已在畫布建立新任務 [${newId}] ${newTask.name}`, 'success');
+      showToast(`已在畫布建立新任務 [${newId}] ${newTask.name || ''}`, 'success');
     }
   };
 
