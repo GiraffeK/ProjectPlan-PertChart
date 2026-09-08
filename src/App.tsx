@@ -1275,6 +1275,9 @@ export function App() {
             onIndentTask={handleIndentTask}
             onOutdentTask={handleOutdentTask}
             onDeleteTask={handleDeleteTask}
+            onUpdateTaskDuration={(taskId, newDuration) =>
+              handleUpdateTaskSchedule(taskId, { duration: newDuration })
+            }
           />
         )}
 
@@ -1339,6 +1342,9 @@ export function App() {
                 onIndentTask={handleIndentTask}
                 onOutdentTask={handleOutdentTask}
                 onDeleteTask={handleDeleteTask}
+                onUpdateTaskDuration={(taskId, newDuration) =>
+                  handleUpdateTaskSchedule(taskId, { duration: newDuration })
+                }
               />
             </div>
 

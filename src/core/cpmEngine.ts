@@ -65,6 +65,31 @@ export function formatDateForDisplay(dateStr?: string): string {
 }
 
 /**
+ * Format date into MM/DD
+ */
+export function formatMonthDay(dateStr?: string): string {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    return `${parts[1]}/${parts[2]}`;
+  }
+  return dateStr;
+}
+
+/**
+ * Format start and finish dates into "MM/DD - MM/DD"
+ */
+export function formatDateRangeForDisplay(startDate?: string, finishDate?: string): string {
+  if (!startDate) return '';
+  const startMD = formatMonthDay(startDate);
+  if (!finishDate || finishDate === startDate) {
+    return startMD;
+  }
+  const finishMD = formatMonthDay(finishDate);
+  return `${startMD} - ${finishMD}`;
+}
+
+/**
  * Round number to avoid IEEE 754 precision issues (e.g., 1.0000000000000002)
  */
 export function roundDays(val: number, decimals: number = 4): number {

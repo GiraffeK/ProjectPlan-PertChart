@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { Task } from '../core/types';
-import { formatDateForDisplay, formatDays, getParentBadgeLabel } from '../core/cpmEngine';
+import { formatDateRangeForDisplay, formatDays, getParentBadgeLabel } from '../core/cpmEngine';
 import dagre from 'dagre';
 import { TaskContextMenu } from './TaskContextMenu';
 import {
@@ -12,6 +12,8 @@ import {
   RefreshCw,
   Trash2,
   Indent,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 
 export interface NodePosition {
@@ -39,6 +41,7 @@ interface PertChartProps {
   onIndentTask?: (task: Task) => void;
   onOutdentTask?: (task: Task) => void;
   onDeleteTask?: (taskId: string) => void;
+  onUpdateTaskDuration?: (taskId: string, duration: number) => void;
 }
 
 const NODE_WIDTH = 190;
@@ -62,6 +65,7 @@ export const PertChart: React.FC<PertChartProps> = ({
   onIndentTask,
   onOutdentTask,
   onDeleteTask,
+  onUpdateTaskDuration,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map());
@@ -963,18 +967,54 @@ export const PertChart: React.FC<PertChartProps> = ({
                           : 'bg-slate-50/70 text-slate-600 divide-slate-300'
                       }`}
                     >
-                      <div className="flex-1 px-2 text-center truncate font-mono">
-                        {formatDateForDisplay(task.startDate) || `Day ${formatDays(task.earlyStart)}`}
+                      <div
+                        className="flex-1 px-1.5 text-center truncate font-mono text-[10px]"
+                        title={`排程日期：${task.startDate || ''} ~ ${task.finishDate || ''}`}
+                      >
+                        {formatDateRangeForDisplay(task.startDate, task.finishDate) || `Day ${formatDays(task.earlyStart)}`}
                       </div>
-                      <div className="flex-1 px-2 text-center truncate font-mono">
+                      <div className="group/dur flex-1 px-1 h-full flex items-center justify-center relative select-none">
                         {isSummary ? (
-                          <span className="font-bold flex items-center justify-center space-x-1 text-slate-800" title={`${getParentBadgeLabel(task)}，工期由子任務自動彙總`}>
+                          <span className="font-bold flex items-center justify-center space-x-1 text-slate-800 text-[11px]" title={`${getParentBadgeLabel(task)}，工期由子任務自動彙總`}>
                             <span>📁 {formatDays(task.duration)} 天</span>
                           </span>
                         ) : (
-                          <span>
-                            {formatDays(task.duration)} {task.duration === 1 ? 'day' : 'days'}
-                          </span>
+                          <div className="flex items-center justify-between w-full h-full px-0.5">
+                            <span className="flex-1 text-center truncate font-mono text-[10.5px]">
+                              {formatDays(task.duration)} {task.duration === 1 ? 'day' : 'days'}
+                            </span>
+                            {onUpdateTaskDuration && (
+                              <div className="flex flex-col items-center justify-center opacity-0 group-hover/dur:opacity-100 transition-opacity shrink-0 -space-y-0.5">
+                                <button
+                                  type="button"
+                                  title="增加工期 (+1天)"
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    const cur = typeof task.duration === 'number' ? task.duration : 1;
+                                    onUpdateTaskDuration(task.id, cur + 1);
+                                  }}
+                                  onMouseDown={e => e.stopPropagation()}
+                                  className="p-0.5 hover:bg-slate-300/80 active:bg-slate-400 rounded text-slate-600 hover:text-blue-600 transition-colors cursor-pointer"
+                                >
+                                  <ChevronUp size={11} strokeWidth={2.5} />
+                                </button>
+                                <button
+                                  type="button"
+                                  title="減少工期 (-1天)"
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    const cur = typeof task.duration === 'number' ? task.duration : 1;
+                                    const min = isMilestone ? 0 : 1;
+                                    onUpdateTaskDuration(task.id, Math.max(min, cur - 1));
+                                  }}
+                                  onMouseDown={e => e.stopPropagation()}
+                                  className="p-0.5 hover:bg-slate-300/80 active:bg-slate-400 rounded text-slate-600 hover:text-blue-600 transition-colors cursor-pointer"
+                                >
+                                  <ChevronDown size={11} strokeWidth={2.5} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
