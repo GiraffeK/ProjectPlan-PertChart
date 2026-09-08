@@ -294,6 +294,8 @@ export function App() {
           id: 'msp-export',
           name: trimmed,
           startDate,
+          scheduleMode,
+          holidays: customHolidays,
           tasks: cpmResult.tasks,
           criticalPathDuration: cpmResult.criticalPathDuration,
           criticalPathTaskIds: cpmResult.criticalPathTaskIds,
@@ -999,6 +1001,8 @@ export function App() {
       id: 'msp-export',
       name: projectName,
       startDate,
+      scheduleMode,
+      holidays: customHolidays,
       tasks: cpmResult.tasks,
       criticalPathDuration: cpmResult.criticalPathDuration,
       criticalPathTaskIds: cpmResult.criticalPathTaskIds,
@@ -1142,6 +1146,12 @@ export function App() {
         pushHistory();
         setProjectName(imported.projectName);
         setStartDate(imported.startDate);
+        if (imported.scheduleMode) {
+          setScheduleMode(imported.scheduleMode);
+        }
+        if (imported.holidays && imported.holidays.length > 0) {
+          setCustomHolidays(imported.holidays);
+        }
         pertPositionsRef.current.clear();
         setTasks(syncFirstChildPredecessors(imported.tasks));
         showToast(

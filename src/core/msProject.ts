@@ -1,4 +1,4 @@
-import type { Task, ProjectData } from './types';
+import type { Task, ProjectData, Holiday, ScheduleMode } from './types';
 
 /**
  * Format duration in days to MS Project ISO 8601 Duration (standard 8h/day)
@@ -54,6 +54,89 @@ export function exportToMSProjectXML(project: ProjectData): string {
     return t.finishDate && t.finishDate > max ? t.finishDate : max;
   }, project.startDate);
   const finishDateTime = `${finishDate}T17:00:00`;
+
+  let exceptionsXml = '';
+  if (project.holidays && project.holidays.length > 0) {
+    project.holidays.forEach(h => {
+      exceptionsXml += `
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>${h.date}T00:00:00</FromDate>
+            <ToDate>${h.date}T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>${escapeXml(h.name || 'Holiday')}</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>`;
+    });
+  }
+
+  const isCalendarMode = project.scheduleMode === 'calendar';
+  const weekendDayWorking = isCalendarMode ? '1' : '0';
+
+  const calendarsXml = `
+  <Calendars>
+    <Calendar>
+      <UID>1</UID>
+      <Name>Standard</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+      <BaseCalendarUID>-1</BaseCalendarUID>
+      <WeekDays>
+        <WeekDay>
+          <DayType>1</DayType>
+          <DayWorking>${weekendDayWorking}</DayWorking>
+        </WeekDay>
+        <WeekDay>
+          <DayType>2</DayType>
+          <DayWorking>1</DayWorking>
+          <WorkingTimes>
+            <WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime>
+            <WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime>
+          </WorkingTimes>
+        </WeekDay>
+        <WeekDay>
+          <DayType>3</DayType>
+          <DayWorking>1</DayWorking>
+          <WorkingTimes>
+            <WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime>
+            <WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime>
+          </WorkingTimes>
+        </WeekDay>
+        <WeekDay>
+          <DayType>4</DayType>
+          <DayWorking>1</DayWorking>
+          <WorkingTimes>
+            <WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime>
+            <WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime>
+          </WorkingTimes>
+        </WeekDay>
+        <WeekDay>
+          <DayType>5</DayType>
+          <DayWorking>1</DayWorking>
+          <WorkingTimes>
+            <WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime>
+            <WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime>
+          </WorkingTimes>
+        </WeekDay>
+        <WeekDay>
+          <DayType>6</DayType>
+          <DayWorking>1</DayWorking>
+          <WorkingTimes>
+            <WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime>
+            <WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime>
+          </WorkingTimes>
+        </WeekDay>
+        <WeekDay>
+          <DayType>7</DayType>
+          <DayWorking>${weekendDayWorking}</DayWorking>
+        </WeekDay>
+      </WeekDays>${exceptionsXml ? `
+      <Exceptions>${exceptionsXml}
+      </Exceptions>` : ''}
+    </Calendar>
+  </Calendars>`;
 
   let tasksXml = '';
   project.tasks.forEach((task, index) => {
@@ -145,7 +228,7 @@ export function exportToMSProjectXML(project: ProjectData): string {
   <DurationFormat>21</DurationFormat>
   <WorkFormat>2</WorkFormat>
   <EditableActualCosts>0</EditableActualCosts>
-  <HonorConstraints>0</HonorConstraints>
+  <HonorConstraints>0</HonorConstraints>${calendarsXml}
   <Tasks>${tasksXml}
   </Tasks>
 </Project>`;
@@ -158,6 +241,8 @@ export function parseMSProjectXML(xmlContent: string): {
   projectName: string;
   startDate: string;
   tasks: Task[];
+  scheduleMode?: ScheduleMode;
+  holidays?: Holiday[];
 } {
   // Check if browser DOMParser is available
   if (typeof DOMParser !== 'undefined') {
@@ -180,6 +265,44 @@ export function parseMSProjectXML(xmlContent: string): {
         startDate = rawDate;
       }
     }
+
+    // Parse WeekDays for ScheduleMode (calendar vs working)
+    let scheduleMode: ScheduleMode = 'working';
+    const weekDays = Array.from(xmlDoc.querySelectorAll('WeekDays > WeekDay'));
+    const sunWd = weekDays.find(w => w.querySelector('DayType')?.textContent?.trim() === '1');
+    const satWd = weekDays.find(w => w.querySelector('DayType')?.textContent?.trim() === '7');
+    if (
+      sunWd?.querySelector('DayWorking')?.textContent?.trim() === '1' &&
+      satWd?.querySelector('DayWorking')?.textContent?.trim() === '1'
+    ) {
+      scheduleMode = 'calendar';
+    }
+
+    // Parse Exceptions for Holidays
+    const holidayElements = Array.from(
+      xmlDoc.querySelectorAll('Calendar > Exceptions > Exception, Exceptions > Exception')
+    );
+    const holidays: Holiday[] = [];
+    holidayElements.forEach((el, idx) => {
+      const dayWorkingEl = el.querySelector('DayWorking');
+      if (dayWorkingEl?.textContent?.trim() === '1') return; // working time exception, not a holiday
+
+      const fromDateEl = el.querySelector('TimePeriod > FromDate, FromDate');
+      const nameEl = el.querySelector('Name');
+      if (fromDateEl?.textContent) {
+        const date = fromDateEl.textContent.trim().split('T')[0];
+        if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          const name = nameEl?.textContent?.trim() || 'Holiday';
+          if (!holidays.some(h => h.date === date)) {
+            holidays.push({
+              id: `h_imported_${date}_${idx}`,
+              date,
+              name,
+            });
+          }
+        }
+      }
+    });
 
     const taskElements = Array.from(xmlDoc.querySelectorAll('Tasks > Task'));
     const uidToTaskIdMap = new Map<number, string>();
@@ -243,7 +366,7 @@ export function parseMSProjectXML(xmlContent: string): {
       };
     });
 
-    return { projectName, startDate, tasks };
+    return { projectName, startDate, tasks, scheduleMode, holidays };
   }
 
   // Regex fallback for non-DOM environments (e.g. Node tests)
@@ -252,6 +375,37 @@ export function parseMSProjectXML(xmlContent: string): {
 
   const startMatch = xmlContent.match(/<StartDate>(.*?)<\/StartDate>/);
   const startDate = startMatch ? startMatch[1].split('T')[0] : '2000-02-01';
+
+  // Fallback check for Calendar mode vs Working mode
+  let scheduleMode: ScheduleMode = 'working';
+  const sundayCalendarMatch = /<WeekDay>\s*<DayType>1<\/DayType>\s*<DayWorking>1<\/DayWorking>/i.test(xmlContent);
+  const saturdayCalendarMatch = /<WeekDay>\s*<DayType>7<\/DayType>\s*<DayWorking>1<\/DayWorking>/i.test(xmlContent);
+  if (sundayCalendarMatch && saturdayCalendarMatch) {
+    scheduleMode = 'calendar';
+  }
+
+  // Fallback parse exceptions
+  const holidays: Holiday[] = [];
+  const exceptionRegex = /<Exception>([\s\S]*?)<\/Exception>/g;
+  let excMatch: RegExpExecArray | null;
+  let excIdx = 1;
+  while ((excMatch = exceptionRegex.exec(xmlContent)) !== null) {
+    const excXml = excMatch[1];
+    const dayWorkingMatch = excXml.match(/<DayWorking>(\d+)<\/DayWorking>/);
+    if (dayWorkingMatch && dayWorkingMatch[1] === '1') continue;
+
+    const fromDateMatch = excXml.match(/<FromDate>(.*?)<\/FromDate>/);
+    const excNameMatch = excXml.match(/<Name>(.*?)<\/Name>/);
+    if (fromDateMatch) {
+      const date = fromDateMatch[1].split('T')[0];
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        const name = excNameMatch ? excNameMatch[1] : 'Holiday';
+        if (!holidays.some(h => h.date === date)) {
+          holidays.push({ id: `h_imported_${date}_${excIdx++}`, date, name });
+        }
+      }
+    }
+  }
 
   const taskRegex = /<Task>([\s\S]*?)<\/Task>/g;
   let match: RegExpExecArray | null;
@@ -300,7 +454,7 @@ export function parseMSProjectXML(xmlContent: string): {
     };
   });
 
-  return { projectName, startDate, tasks };
+  return { projectName, startDate, tasks, scheduleMode, holidays };
 }
 
 function escapeXml(unsafe: string): string {
