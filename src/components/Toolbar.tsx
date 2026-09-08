@@ -28,7 +28,8 @@ interface ToolbarProps {
   onChangeViewMode: (mode: ViewMode) => void;
   projectName: string;
   onChangeProjectName: (name: string) => void;
-  onAddTask: () => void;
+  onNewProject?: () => void;
+  onAddTask?: () => void;
   onSave: () => void;
   onSaveAs?: () => void;
   onUndo?: () => void;
@@ -54,7 +55,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onChangeViewMode,
   projectName,
   onChangeProjectName,
-  onAddTask,
+  onNewProject,
   onSave,
   onSaveAs,
   onUndo,
@@ -136,7 +137,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div className="relative shrink-0" ref={fileMenuRef}>
         <button
           onClick={() => setIsFileMenuOpen(!isFileMenuOpen)}
-          title="檔案操作選單 (新增任務、儲存、另存、匯入、匯出)"
+          title="檔案操作選單 (新增專案、儲存、另存、匯入、匯出)"
           className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer border ${
             isFileMenuOpen
               ? 'bg-slate-700 text-white border-slate-500 ring-2 ring-blue-500/30'
@@ -159,13 +160,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <div className="py-1">
               <button
                 onClick={() => {
-                  onAddTask();
                   setIsFileMenuOpen(false);
+                  if (onNewProject) {
+                    onNewProject();
+                  }
                 }}
                 className="w-full flex items-center space-x-2.5 px-3 py-2 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left font-medium text-blue-400"
               >
                 <Plus size={15} />
-                <span>新增任務 (New Task)</span>
+                <span>新增專案 (New Project)</span>
               </button>
 
               <button

@@ -11,6 +11,7 @@ import { TaskModal } from './components/TaskModal';
 import { MppGuideModal } from './components/MppGuideModal';
 import { SaveAsModal } from './components/SaveAsModal';
 import { HelpModal } from './components/HelpModal';
+import { ConfirmNewProjectModal } from './components/ConfirmNewProjectModal';
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 
 const DEFAULT_INITIAL_TASK: Task[] = [
@@ -112,6 +113,7 @@ export function App() {
   const [isMppGuideOpen, setIsMppGuideOpen] = useState(false);
   const [isSaveAsOpen, setIsSaveAsOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isConfirmNewProjectOpen, setIsConfirmNewProjectOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [pendingTaskPos, setPendingTaskPos] = useState<{ x: number; y: number } | null>(null);
   const [pendingPredecessors, setPendingPredecessors] = useState<string[]>([]);
@@ -1165,6 +1167,42 @@ export function App() {
     showToast('已重新載入 88 天軟體開發專案參考範例！', 'info');
   };
 
+  // Execute resetting to first-time entrance state (新增專案)
+  const handleCreateNewProject = () => {
+    pushHistory();
+    const today = new Date().toISOString().split('T')[0];
+    const initialTasks = syncFirstChildPredecessors(DEFAULT_INITIAL_TASK);
+    pertPositionsRef.current.clear();
+    setTasks(initialTasks);
+    setProjectName('My Project');
+    setStartDate(today);
+    setInitialPertTransform({ x: 80, y: 80, scale: 0.85 });
+    setSelectedTaskIds(new Set());
+    setUndoStack([]);
+    setRedoStack([]);
+
+    // Clear saved storage so next refresh stays in fresh initial state
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(STORAGE_TIME_KEY);
+      setLastSavedTime(null);
+      setIsDirty(false);
+    } catch (e) {
+      console.error(e);
+    }
+
+    showToast('✨ 已成功建立新專案！所有畫面已重設為初始狀態。', 'success');
+  };
+
+  // Prompt or directly create new project
+  const handleRequestNewProject = () => {
+    if (isDirty) {
+      setIsConfirmNewProjectOpen(true);
+    } else {
+      handleCreateNewProject();
+    }
+  };
+
   return (
     <div className="flex flex-col w-full h-full overflow-hidden bg-slate-100">
       {/* Top Main Toolbar */}
@@ -1173,6 +1211,7 @@ export function App() {
         onChangeViewMode={setViewMode}
         projectName={projectName}
         onChangeProjectName={setProjectName}
+        onNewProject={handleRequestNewProject}
         onAddTask={() => {
           setEditingTask(null);
           setIsModalOpen(true);
@@ -1387,6 +1426,14 @@ export function App() {
       <HelpModal
         isOpen={isHelpOpen}
         onClose={() => setIsHelpOpen(false)}
+      />
+
+      {/* Confirm New Project Modal */}
+      <ConfirmNewProjectModal
+        isOpen={isConfirmNewProjectOpen}
+        onClose={() => setIsConfirmNewProjectOpen(false)}
+        onConfirm={handleCreateNewProject}
+        projectName={projectName}
       />
 
       {/* Toast Floating Notification */}
