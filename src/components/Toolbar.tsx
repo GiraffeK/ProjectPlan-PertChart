@@ -45,7 +45,7 @@ interface ToolbarProps {
   onOpenHelp?: () => void;
   startDate: string;
   onChangeStartDate: (date: string) => void;
-  criticalPathDuration: number;
+  criticalPathDuration?: number;
   hasCycle?: boolean;
 }
 
@@ -59,9 +59,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onSaveAs,
   onUndo,
   onRedo,
-  canUndo,
-  canRedo,
-  isDirty,
+  canUndo = false,
+  canRedo = false,
+  isDirty = false,
   lastSavedTime,
   onLoadSample,
   onExportMSProject,
@@ -71,7 +71,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onOpenHelp,
   startDate,
   onChangeStartDate,
-  criticalPathDuration,
   hasCycle,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -101,7 +100,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   };
 
   return (
-    <header className="flex items-center justify-between px-3 lg:px-4 py-1.5 bg-slate-900 text-white shadow-md z-30 select-none border-b border-slate-800 shrink-0 w-full overflow-x-auto min-w-0">
+    <header className="relative z-30 flex items-center px-3 lg:px-4 py-1.5 bg-slate-900 text-white shadow-md select-none border-b border-slate-800 shrink-0 w-full space-x-2.5">
       {/* Hidden File Input for Import */}
       <input
         type="file"
@@ -111,310 +110,302 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         className="hidden"
       />
 
-      {/* Left: Branding, HELP, File Menu, Project Name, View Tabs, Project Schedule */}
-      <div className="flex items-center space-x-2 shrink-0">
-        {/* Brand */}
-        <div className="flex items-center space-x-1.5 shrink-0">
-          <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shadow-md shrink-0">
-            <Network size={16} className="text-white" />
-          </div>
-          <span className="text-xs lg:text-sm font-bold tracking-tight text-white shrink-0">
-            PERT & Gantt
-          </span>
+      {/* 1. Brand */}
+      <div className="flex items-center space-x-1.5 shrink-0">
+        <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center shadow-md shrink-0">
+          <Network size={16} className="text-white" />
         </div>
+        <span className="text-xs lg:text-sm font-bold tracking-tight text-white shrink-0">
+          PERT & Gantt
+        </span>
+      </div>
 
-        {/* HELP Button */}
-        {onOpenHelp && (
-          <button
-            onClick={onOpenHelp}
-            title="查看 Microsoft Project 操作體驗與說明 (HELP)"
-            className="flex items-center space-x-1 px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded text-[11px] font-bold shadow-xs transition-colors cursor-pointer shrink-0"
-          >
-            <HelpCircle size={12} className="text-amber-400" />
-            <span>HELP</span>
-          </button>
-        )}
+      {/* 2. HELP Button */}
+      {onOpenHelp && (
+        <button
+          onClick={onOpenHelp}
+          title="查看 Microsoft Project 操作體驗與說明 (HELP)"
+          className="flex items-center space-x-1 px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded text-[11px] font-bold shadow-xs transition-colors cursor-pointer shrink-0"
+        >
+          <HelpCircle size={12} className="text-amber-400" />
+          <span>HELP</span>
+        </button>
+      )}
 
-        {/* File Operations Dropdown (檔案下拉選單) */}
-        <div className="relative shrink-0" ref={fileMenuRef}>
-          <button
-            onClick={() => setIsFileMenuOpen(!isFileMenuOpen)}
-            title="檔案操作選單 (儲存、另存、匯入、匯出)"
-            className={`flex items-center space-x-1 px-2 py-0.5 rounded text-xs font-semibold transition-all cursor-pointer border ${
-              isFileMenuOpen
-                ? 'bg-slate-700 text-white border-slate-500 ring-2 ring-blue-500/30'
-                : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 hover:text-white border-slate-700'
+      {/* 3. File Operations Dropdown (檔案下拉選單) */}
+      <div className="relative shrink-0" ref={fileMenuRef}>
+        <button
+          onClick={() => setIsFileMenuOpen(!isFileMenuOpen)}
+          title="檔案操作選單 (新增任務、儲存、另存、匯入、匯出)"
+          className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer border ${
+            isFileMenuOpen
+              ? 'bg-slate-700 text-white border-slate-500 ring-2 ring-blue-500/30'
+              : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 hover:text-white border-slate-700'
+          }`}
+        >
+          <Folder size={13} className="text-blue-400" />
+          <span>檔案</span>
+          <ChevronDown
+            size={11}
+            className={`transition-transform duration-150 ${
+              isFileMenuOpen ? 'rotate-180 text-blue-400' : 'text-slate-400'
             }`}
-          >
-            <Folder size={12} className="text-blue-400" />
-            <span>檔案</span>
-            <ChevronDown
-              size={11}
-              className={`transition-transform duration-150 ${
-                isFileMenuOpen ? 'rotate-180 text-blue-400' : 'text-slate-400'
-              }`}
-            />
-          </button>
-
-          {isFileMenuOpen && (
-            <div className="absolute left-0 mt-1.5 w-64 bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-xl shadow-2xl py-1 z-50 text-xs text-slate-200 animate-in fade-in zoom-in-95 duration-100 divide-y divide-slate-800">
-              {/* Group 1: 儲存與另存 */}
-              <div className="py-1">
-                <button
-                  onClick={() => {
-                    onSave();
-                    setIsFileMenuOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
-                >
-                  <div className="flex items-center space-x-2">
-                    <Save size={14} className="text-emerald-400" />
-                    <span className="font-medium">儲存專案</span>
-                  </div>
-                  <span className="text-[10px] text-slate-400 font-mono">Ctrl+S</span>
-                </button>
-
-                {onSaveAs && (
-                  <button
-                    onClick={() => {
-                      onSaveAs();
-                      setIsFileMenuOpen(false);
-                    }}
-                    className="w-full flex items-center space-x-2 px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
-                  >
-                    <FolderPlus size={14} className="text-blue-400" />
-                    <span className="font-medium">另存新檔 (Save As)...</span>
-                  </button>
-                )}
-              </div>
-
-              {/* Group 2: 匯入與匯出 */}
-              <div className="py-1">
-                <button
-                  onClick={() => {
-                    fileInputRef.current?.click();
-                    setIsFileMenuOpen(false);
-                  }}
-                  className="w-full flex items-center space-x-2 px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
-                >
-                  <FileUp size={14} className="text-amber-400" />
-                  <span className="font-medium">匯入專案 (MPP / XML / JSON)...</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    onExportMSProject();
-                    setIsFileMenuOpen(false);
-                  }}
-                  className="w-full flex items-center space-x-2 px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
-                >
-                  <FileDown size={14} className="text-emerald-400" />
-                  <span className="font-medium">匯出 MS Project XML (*.xml)</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    onExportJSON();
-                    setIsFileMenuOpen(false);
-                  }}
-                  className="w-full flex items-center space-x-2 px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
-                >
-                  <Sparkles size={14} className="text-purple-400" />
-                  <span className="font-medium">匯出 JSON 備份檔 (*.json)</span>
-                </button>
-              </div>
-
-              {/* Group 3: 範例與說明 */}
-              <div className="py-1">
-                <button
-                  onClick={() => {
-                    onLoadSample();
-                    setIsFileMenuOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
-                >
-                  <div className="flex items-center space-x-2">
-                    <RotateCcw size={14} className="text-slate-400" />
-                    <span className="font-medium">載入參考範例專案</span>
-                  </div>
-                  <span className="text-[10px] text-slate-400">88天範例</span>
-                </button>
-
-                {onOpenMppGuide && (
-                  <button
-                    onClick={() => {
-                      onOpenMppGuide();
-                      setIsFileMenuOpen(false);
-                    }}
-                    className="w-full flex items-center space-x-2 px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
-                  >
-                    <HelpCircle size={14} className="text-blue-400" />
-                    <span className="font-medium">MPP 格式匯入轉換說明</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Project Name Input */}
-        <div className="hidden sm:flex items-center bg-slate-800/90 px-2 py-0.5 rounded-md border border-slate-700 shrink-0">
-          <input
-            type="text"
-            value={projectName}
-            onChange={e => onChangeProjectName(e.target.value)}
-            placeholder="專案名稱"
-            title="點擊修改專案名稱"
-            className="bg-transparent text-xs font-semibold text-slate-200 focus:text-white focus:outline-none w-28 md:w-32 placeholder-slate-500 truncate"
           />
-        </div>
+        </button>
 
-        <div className="h-4 w-px bg-slate-700 mx-0.5 shrink-0" />
+        {isFileMenuOpen && (
+          <div className="absolute top-full left-0 mt-1 w-64 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl py-1 z-50 text-xs text-slate-200 animate-in fade-in zoom-in-95 duration-100 divide-y divide-slate-800">
+            {/* Group 1: 新增與儲存 */}
+            <div className="py-1">
+              <button
+                onClick={() => {
+                  onAddTask();
+                  setIsFileMenuOpen(false);
+                }}
+                className="w-full flex items-center space-x-2.5 px-3 py-2 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left font-medium text-blue-400"
+              >
+                <Plus size={15} />
+                <span>新增任務 (New Task)</span>
+              </button>
 
-        {/* View Mode Switcher */}
-        <div className="flex items-center bg-slate-800/80 p-0.5 rounded-lg border border-slate-700/80 space-x-0.5 shrink-0">
-          <button
-            onClick={() => onChangeViewMode('pert')}
-            title="切換至 PERT 網圖"
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-              viewMode === 'pert'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-            }`}
-          >
-            <Network size={13} />
-            <span>PERT 網圖</span>
-          </button>
-          <button
-            onClick={() => onChangeViewMode('gantt')}
-            title="切換至甘特圖 (Gantt Chart)"
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-              viewMode === 'gantt'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-            }`}
-          >
-            <BarChart2 size={13} />
-            <span>甘特圖</span>
-          </button>
-          <button
-            onClick={() => onChangeViewMode('split')}
-            title="切換至雙視圖 (Split View)"
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-              viewMode === 'split'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-            }`}
-          >
-            <Columns size={13} />
-            <span>雙視圖</span>
-          </button>
-          <button
-            onClick={() => onChangeViewMode('table')}
-            title="切換至任務清單"
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-              viewMode === 'table'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
-            }`}
-          >
-            <TableIcon size={13} />
-            <span>任務清單</span>
-          </button>
-        </div>
+              <button
+                onClick={() => {
+                  onSave();
+                  setIsFileMenuOpen(false);
+                }}
+                className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
+              >
+                <div className="flex items-center space-x-2.5">
+                  <Save size={14} className="text-emerald-400" />
+                  <span className="font-medium">儲存專案</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-mono">Ctrl+S</span>
+              </button>
 
-        <div className="h-4 w-px bg-slate-700 mx-0.5 shrink-0" />
-
-        {/* Project Start Date & Critical Path Badge */}
-        {hasCycle ? (
-          <div className="flex items-center space-x-1 px-2 py-0.5 bg-red-500/20 border border-red-500/50 rounded text-xs text-red-300 font-medium animate-pulse shrink-0">
-            <AlertOctagon size={13} className="text-red-400" />
-            <span>循環依賴！</span>
-          </div>
-        ) : (
-          <div className="flex items-center space-x-1.5 shrink-0">
-            <div className="flex items-center space-x-1 bg-slate-800/80 px-2 py-1 rounded-lg border border-slate-700 text-xs shrink-0">
-              <Calendar size={13} className="text-slate-400" />
-              <span className="text-slate-400 text-[11px]">專案起日:</span>
-              <input
-                type="date"
-                value={startDate}
-                onChange={e => onChangeStartDate(e.target.value)}
-                className="bg-transparent text-white font-mono text-xs focus:outline-none cursor-pointer"
-              />
+              {onSaveAs && (
+                <button
+                  onClick={() => {
+                    onSaveAs();
+                    setIsFileMenuOpen(false);
+                  }}
+                  className="w-full flex items-center space-x-2.5 px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
+                >
+                  <FolderPlus size={14} className="text-blue-400" />
+                  <span className="font-medium">另存新檔 (Save As)...</span>
+                </button>
+              )}
             </div>
-            <div className="flex items-center space-x-1 px-2 py-1 bg-red-950/40 border border-red-800/60 rounded-lg text-xs shrink-0">
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-slate-300 text-[11px]">關鍵工期:</span>
-              <span className="font-bold text-red-400 font-mono">{criticalPathDuration} 天</span>
+
+            {/* Group 2: 匯入與匯出 */}
+            <div className="py-1">
+              <button
+                onClick={() => {
+                  fileInputRef.current?.click();
+                  setIsFileMenuOpen(false);
+                }}
+                className="w-full flex items-center space-x-2.5 px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
+              >
+                <FileUp size={14} className="text-amber-400" />
+                <span className="font-medium">匯入專案 (MPP / XML / JSON)...</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  onExportMSProject();
+                  setIsFileMenuOpen(false);
+                }}
+                className="w-full flex items-center space-x-2.5 px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
+              >
+                <FileDown size={14} className="text-emerald-400" />
+                <span className="font-medium">匯出 MS Project XML (*.xml)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  onExportJSON();
+                  setIsFileMenuOpen(false);
+                }}
+                className="w-full flex items-center space-x-2.5 px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
+              >
+                <Sparkles size={14} className="text-purple-400" />
+                <span className="font-medium">匯出 JSON 備份檔 (*.json)</span>
+              </button>
+            </div>
+
+            {/* Group 3: 範例與說明 */}
+            <div className="py-1">
+              <button
+                onClick={() => {
+                  onLoadSample();
+                  setIsFileMenuOpen(false);
+                }}
+                className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
+              >
+                <div className="flex items-center space-x-2.5">
+                  <RotateCcw size={14} className="text-slate-400" />
+                  <span className="font-medium">載入參考範例專案</span>
+                </div>
+                <span className="text-[10px] text-slate-400">88天範例</span>
+              </button>
+
+              {onOpenMppGuide && (
+                <button
+                  onClick={() => {
+                    onOpenMppGuide();
+                    setIsFileMenuOpen(false);
+                  }}
+                  className="w-full flex items-center space-x-2.5 px-3 py-1.5 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer text-left"
+                >
+                  <HelpCircle size={14} className="text-blue-400" />
+                  <span className="font-medium">MPP 格式匯入轉換說明</span>
+                </button>
+              )}
             </div>
           </div>
         )}
       </div>
 
-      {/* Right: Undo/Redo, Autosave, Add Task */}
-      <div className="flex items-center space-x-1.5 shrink-0">
-        {/* Undo / Redo Buttons */}
-        <div className="flex items-center space-x-0.5 bg-slate-800/90 p-0.5 rounded-lg border border-slate-700/90 shrink-0">
-          <button
-            onClick={onUndo}
-            disabled={!canUndo}
-            title="復原操作 (Undo，快捷鍵 Ctrl + Z)"
-            className={`p-1 rounded-md transition-colors ${
-              canUndo
-                ? 'text-slate-200 hover:text-white hover:bg-slate-700 cursor-pointer'
-                : 'text-slate-600 cursor-not-allowed opacity-40'
-            }`}
-          >
-            <Undo2 size={13} />
-          </button>
-          <button
-            onClick={onRedo}
-            disabled={!canRedo}
-            title="重做操作 (Redo，快捷鍵 Ctrl + Y / Ctrl + Shift + Z)"
-            className={`p-1 rounded-md transition-colors ${
-              canRedo
-                ? 'text-slate-200 hover:text-white hover:bg-slate-700 cursor-pointer'
-                : 'text-slate-600 cursor-not-allowed opacity-40'
-            }`}
-          >
-            <Redo2 size={13} />
-          </button>
-        </div>
+      {/* 4. Project Name Input */}
+      <div className="hidden sm:flex items-center bg-slate-800/90 px-2 py-0.5 rounded-md border border-slate-700 shrink-0">
+        <input
+          type="text"
+          value={projectName}
+          onChange={e => onChangeProjectName(e.target.value)}
+          placeholder="專案名稱"
+          title="點擊修改專案名稱"
+          className="bg-transparent text-xs font-semibold text-slate-200 focus:text-white focus:outline-none w-28 md:w-32 placeholder-slate-500 truncate"
+        />
+      </div>
 
-        {/* Autosave Status Badge */}
-        <div
-          className="flex items-center justify-center text-[11px] font-mono px-2 py-1 rounded bg-slate-800/80 border border-slate-700/80 shrink-0 select-none cursor-default"
-          title={
-            isDirty
-              ? `變更將自動備份至 [${projectName}_autosave]`
-              : `已自動儲存至 [${projectName}_autosave] ${
-                  lastSavedTime ? `(${lastSavedTime})` : ''
-                }\n點擊「檔案 ➔ 儲存」可存至原檔「${projectName}」`
-          }
-        >
-          {isDirty ? (
-            <span className="flex items-center space-x-1 text-amber-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
-              <span className="whitespace-nowrap">存檔中</span>
-            </span>
-          ) : (
-            <span className="flex items-center space-x-1 text-emerald-400/90">
-              <Check size={12} className="text-emerald-400 shrink-0" />
-              <span className="whitespace-nowrap">已存檔</span>
-            </span>
-          )}
-        </div>
+      <div className="h-4 w-px bg-slate-700 mx-0.5 shrink-0" />
 
-        {/* Add Task Button */}
+      {/* 5. View Mode Switcher */}
+      <div className="flex items-center bg-slate-800/80 p-0.5 rounded-lg border border-slate-700/80 space-x-0.5 shrink-0">
         <button
-          onClick={onAddTask}
-          className="flex items-center space-x-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors shrink-0 cursor-pointer"
+          onClick={() => onChangeViewMode('pert')}
+          title="切換至 PERT 網圖"
+          className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+            viewMode === 'pert'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+          }`}
         >
-          <Plus size={14} />
-          <span>新增任務</span>
+          <Network size={13} />
+          <span>PERT 網圖</span>
+        </button>
+        <button
+          onClick={() => onChangeViewMode('gantt')}
+          title="切換至甘特圖 (Gantt Chart)"
+          className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+            viewMode === 'gantt'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+          }`}
+        >
+          <BarChart2 size={13} />
+          <span>甘特圖</span>
+        </button>
+        <button
+          onClick={() => onChangeViewMode('split')}
+          title="切換至雙視圖 (Split View)"
+          className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+            viewMode === 'split'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+          }`}
+        >
+          <Columns size={13} />
+          <span>雙視圖</span>
+        </button>
+        <button
+          onClick={() => onChangeViewMode('table')}
+          title="切換至任務清單"
+          className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+            viewMode === 'table'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+          }`}
+        >
+          <TableIcon size={13} />
+          <span>任務清單</span>
         </button>
       </div>
+
+      <div className="h-4 w-px bg-slate-700 mx-0.5 shrink-0" />
+
+      {/* 6. Project Start Date */}
+      <div className="flex items-center space-x-1 bg-slate-800/80 px-2 py-1 rounded-lg border border-slate-700 text-xs shrink-0">
+        <Calendar size={13} className="text-slate-400" />
+        <span className="text-slate-400 text-[11px]">專案起日:</span>
+        <input
+          type="date"
+          value={startDate}
+          onChange={e => onChangeStartDate(e.target.value)}
+          className="bg-transparent text-white font-mono text-xs focus:outline-none cursor-pointer"
+        />
+      </div>
+
+      <div className="h-4 w-px bg-slate-700 mx-0.5 shrink-0" />
+
+      {/* 7. Undo / Redo Buttons (Moved forward to cluster nicely) */}
+      <div className="flex items-center space-x-0.5 bg-slate-800/90 p-0.5 rounded-lg border border-slate-700/90 shrink-0">
+        <button
+          onClick={onUndo}
+          disabled={!canUndo}
+          title="復原操作 (Undo，快捷鍵 Ctrl + Z)"
+          className={`p-1 rounded-md transition-colors ${
+            canUndo
+              ? 'text-slate-200 hover:text-white hover:bg-slate-700 cursor-pointer'
+              : 'text-slate-600 cursor-not-allowed opacity-40'
+          }`}
+        >
+          <Undo2 size={13} />
+        </button>
+        <button
+          onClick={onRedo}
+          disabled={!canRedo}
+          title="重做操作 (Redo，快捷鍵 Ctrl + Y / Ctrl + Shift + Z)"
+          className={`p-1 rounded-md transition-colors ${
+            canRedo
+              ? 'text-slate-200 hover:text-white hover:bg-slate-700 cursor-pointer'
+              : 'text-slate-600 cursor-not-allowed opacity-40'
+          }`}
+        >
+          <Redo2 size={13} />
+        </button>
+      </div>
+
+      {/* 8. Autosave Status Badge (Moved forward to cluster nicely) */}
+      <div
+        className="flex items-center justify-center text-[11px] font-mono px-2 py-1 rounded bg-slate-800/80 border border-slate-700/80 shrink-0 select-none cursor-default"
+        title={
+          isDirty
+            ? `變更將自動備份至 [${projectName}_autosave]`
+            : `已自動儲存至 [${projectName}_autosave] ${
+                lastSavedTime ? `(${lastSavedTime})` : ''
+              }\n點擊「檔案 ➔ 儲存」可存至原檔「${projectName}」`
+        }
+      >
+        {isDirty ? (
+          <span className="flex items-center space-x-1 text-amber-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+            <span className="whitespace-nowrap">存檔中</span>
+          </span>
+        ) : (
+          <span className="flex items-center space-x-1 text-emerald-400/90">
+            <Check size={12} className="text-emerald-400 shrink-0" />
+            <span className="whitespace-nowrap">已存檔</span>
+          </span>
+        )}
+      </div>
+
+      {/* Cycle Dependency Alert (if any) */}
+      {hasCycle && (
+        <div className="flex items-center space-x-1 px-2 py-0.5 bg-red-500/20 border border-red-500/50 rounded text-xs text-red-300 font-medium animate-pulse shrink-0">
+          <AlertOctagon size={13} className="text-red-400" />
+          <span>循環依賴！</span>
+        </div>
+      )}
     </header>
   );
 };
