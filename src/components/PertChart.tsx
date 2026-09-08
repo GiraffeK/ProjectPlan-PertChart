@@ -411,13 +411,20 @@ export const PertChart: React.FC<PertChartProps> = ({
           }
         } else if (!targetHoverId) {
           // Dragged to empty space: CREATE A NEW SUCCESSOR TASK at this position!
-          const rect = containerRef.current?.getBoundingClientRect();
-          const containerLeft = rect ? rect.left : 0;
-          const containerTop = rect ? rect.top : 0;
-          const canvasX = Math.round((e.clientX - containerLeft - transform.x) / transform.scale);
-          const canvasY = Math.round((e.clientY - containerTop - transform.y) / transform.scale);
-          if (onCreateTaskAt) {
-            onCreateTaskAt({ x: canvasX, y: canvasY }, pressInfo.fromId);
+          // Only trigger if dragged a meaningful distance (> 35px) to prevent twitch/jitter clicks
+          const dragDist = Math.hypot(
+            e.clientX - pressInfo.startX,
+            e.clientY - pressInfo.startY
+          );
+          if (dragDist > 35) {
+            const rect = containerRef.current?.getBoundingClientRect();
+            const containerLeft = rect ? rect.left : 0;
+            const containerTop = rect ? rect.top : 0;
+            const canvasX = Math.round((e.clientX - containerLeft - transform.x) / transform.scale);
+            const canvasY = Math.round((e.clientY - containerTop - transform.y) / transform.scale);
+            if (onCreateTaskAt) {
+              onCreateTaskAt({ x: canvasX, y: canvasY }, pressInfo.fromId);
+            }
           }
         }
       } else {
@@ -967,24 +974,46 @@ export const PertChart: React.FC<PertChartProps> = ({
                           : 'bg-slate-50/70 text-slate-600 divide-slate-300'
                       }`}
                     >
+                      {/* Date Cell: Click to select/edit, but isolate onMouseDown to prevent connection drag */}
                       <div
-                        className="flex-1 px-1.5 text-center truncate font-mono text-[10px]"
-                        title={`排程日期：${task.startDate || ''} ~ ${task.finishDate || ''}`}
+                        className="flex-1 px-1.5 text-center truncate font-mono text-[10px] cursor-pointer hover:bg-black/5 transition-colors"
+                        title={`排程日期：${task.startDate || ''} ~ ${task.finishDate || ''} (點擊編輯任務)`}
+                        onMouseDown={e => e.stopPropagation()}
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (onSelectTaskIds) {
+                            onSelectTaskIds(new Set([task.id]));
+                          }
+                          onSelectTask(task);
+                        }}
                       >
                         {formatDateRangeForDisplay(task.startDate, task.finishDate) || `Day ${formatDays(task.earlyStart)}`}
                       </div>
-                      <div className="group/dur flex-1 px-1 h-full flex items-center justify-center relative select-none">
+
+                      {/* Duration Cell: Isolated from node clicks, with dedicated large stepper buttons */}
+                      <div
+                        className="group/dur flex-1 h-full flex items-center justify-between pl-2 pr-0 relative select-none cursor-default bg-slate-50/60 hover:bg-slate-100/80 transition-colors"
+                        onMouseDown={e => e.stopPropagation()}
+                        onClick={e => e.stopPropagation()}
+                        onDoubleClick={e => e.stopPropagation()}
+                      >
                         {isSummary ? (
-                          <span className="font-bold flex items-center justify-center space-x-1 text-slate-800 text-[11px]" title={`${getParentBadgeLabel(task)}，工期由子任務自動彙總`}>
+                          <span
+                            className="font-bold flex items-center justify-center space-x-1 text-slate-800 text-[11px] w-full"
+                            title={`${getParentBadgeLabel(task)}，工期由子任務自動彙總`}
+                          >
                             <span>📁 {formatDays(task.duration)} 天</span>
                           </span>
                         ) : (
-                          <div className="flex items-center justify-between w-full h-full px-0.5">
-                            <span className="flex-1 text-center truncate font-mono text-[10.5px]">
+                          <>
+                            <span
+                              className="flex-1 text-center truncate font-mono text-[10.5px] font-semibold text-slate-700"
+                              title={`任務工期：${formatDays(task.duration)} 天 (點擊右側 ▲ / ▼ 調整)`}
+                            >
                               {formatDays(task.duration)} {task.duration === 1 ? 'day' : 'days'}
                             </span>
                             {onUpdateTaskDuration && (
-                              <div className="flex flex-col items-center justify-center opacity-0 group-hover/dur:opacity-100 transition-opacity shrink-0 -space-y-0.5">
+                              <div className="flex flex-col h-full w-6 shrink-0 border-l border-slate-300/80 divide-y divide-slate-300/80 opacity-60 group-hover/dur:opacity-100 hover:opacity-100 transition-opacity">
                                 <button
                                   type="button"
                                   title="增加工期 (+1天)"
@@ -994,9 +1023,9 @@ export const PertChart: React.FC<PertChartProps> = ({
                                     onUpdateTaskDuration(task.id, cur + 1);
                                   }}
                                   onMouseDown={e => e.stopPropagation()}
-                                  className="p-0.5 hover:bg-slate-300/80 active:bg-slate-400 rounded text-slate-600 hover:text-blue-600 transition-colors cursor-pointer"
+                                  className="flex-1 flex items-center justify-center hover:bg-blue-600 hover:text-white text-slate-600 active:bg-blue-700 transition-colors cursor-pointer"
                                 >
-                                  <ChevronUp size={11} strokeWidth={2.5} />
+                                  <ChevronUp size={12} strokeWidth={2.5} />
                                 </button>
                                 <button
                                   type="button"
@@ -1008,13 +1037,13 @@ export const PertChart: React.FC<PertChartProps> = ({
                                     onUpdateTaskDuration(task.id, Math.max(min, cur - 1));
                                   }}
                                   onMouseDown={e => e.stopPropagation()}
-                                  className="p-0.5 hover:bg-slate-300/80 active:bg-slate-400 rounded text-slate-600 hover:text-blue-600 transition-colors cursor-pointer"
+                                  className="flex-1 flex items-center justify-center hover:bg-blue-600 hover:text-white text-slate-600 active:bg-blue-700 transition-colors cursor-pointer"
                                 >
-                                  <ChevronDown size={11} strokeWidth={2.5} />
+                                  <ChevronDown size={12} strokeWidth={2.5} />
                                 </button>
                               </div>
                             )}
-                          </div>
+                          </>
                         )}
                       </div>
                     </div>
