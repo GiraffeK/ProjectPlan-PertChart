@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import type { Task, ProjectData } from './core/types';
-import { calculateCPM } from './core/cpmEngine';
+import { calculateCPM, resolveWBSHierarchy, syncFirstChildPredecessors } from './core/cpmEngine';
 import { SAMPLE_PROJECT_TASKS } from './data/sampleProject';
 import { exportToMSProjectXML, parseMSProjectXML } from './core/msProject';
 import { PertChart, type NodePosition } from './components/PertChart';
@@ -48,7 +48,7 @@ const loadInitialProject = (): InitialProjectState => {
           y: t.y !== undefined ? t.y : posRecord[t.id]?.y,
         }));
         return {
-          tasks: loadedTasks,
+          tasks: syncFirstChildPredecessors(loadedTasks),
           projectName: parsed.projectName || 'My Project',
           startDate: parsed.startDate || new Date().toISOString().split('T')[0],
           pertTransform: parsed.pertTransform,
@@ -59,7 +59,7 @@ const loadInitialProject = (): InitialProjectState => {
     console.error('Failed to load project from localStorage', e);
   }
   return {
-    tasks: DEFAULT_INITIAL_TASK,
+    tasks: syncFirstChildPredecessors(DEFAULT_INITIAL_TASK),
     projectName: 'My Project',
     startDate: new Date().toISOString().split('T')[0],
   };
@@ -67,7 +67,7 @@ const loadInitialProject = (): InitialProjectState => {
 
 export function App() {
   const initialData = useMemo(() => loadInitialProject(), []);
-  const [tasks, setTasks] = useState<Task[]>(initialData.tasks);
+  const [tasks, setTasks] = useState<Task[]>(() => syncFirstChildPredecessors(initialData.tasks));
   const [projectName, setProjectName] = useState<string>(initialData.projectName);
   const [startDate, setStartDate] = useState<string>(initialData.startDate);
   const [initialPertTransform, setInitialPertTransform] = useState<{ x: number; y: number; scale: number } | undefined>(
@@ -468,7 +468,7 @@ export function App() {
         next[idx].parentId = newParentId;
       }
 
-      return next;
+      return syncFirstChildPredecessors(next);
     });
 
     if (orderedTargetTasks.length === 1) {
@@ -533,7 +533,7 @@ export function App() {
         next[idx].parentId = parentId;
       }
 
-      return next;
+      return syncFirstChildPredecessors(next);
     });
 
     if (outdentable.length === 1) {
@@ -604,23 +604,41 @@ export function App() {
     pushHistory();
     if (taskData.id) {
       // Update existing
-      setTasks(prev =>
-        prev.map(t =>
-          t.id === taskData.id
-            ? {
-                ...t,
-                name: taskData.name || t.name,
-                duration: taskData.duration ?? t.duration,
-                category: taskData.category,
-                predecessors: taskData.predecessors || [],
-                summaryLabel:
-                  taskData.summaryLabel !== undefined
-                    ? taskData.summaryLabel
-                    : t.summaryLabel,
-              }
-            : t
-        )
-      );
+      setTasks(prev => {
+        // Check if predecessor was removed from a first child that also belonged to its parent
+        const { parentMap, childrenMap } = resolveWBSHierarchy(prev);
+        const parentId = parentMap.get(taskData.id!);
+        const isFirstChild = parentId ? childrenMap.get(parentId)?.[0] === taskData.id : false;
+
+        const newPreds = taskData.predecessors || [];
+        const existingTask = prev.find(t => t.id === taskData.id);
+        const removedPreds = (existingTask?.predecessors || []).filter(p => !newPreds.includes(p));
+
+        const next = prev.map(t => {
+          if (t.id === taskData.id) {
+            return {
+              ...t,
+              name: taskData.name || t.name,
+              duration: taskData.duration ?? t.duration,
+              category: taskData.category,
+              predecessors: newPreds,
+              summaryLabel:
+                taskData.summaryLabel !== undefined
+                  ? taskData.summaryLabel
+                  : t.summaryLabel,
+            };
+          }
+          // If editing first child and user removed a predecessor that parent had, also remove from parent
+          if (isFirstChild && t.id === parentId && removedPreds.length > 0) {
+            return {
+              ...t,
+              predecessors: (t.predecessors || []).filter(p => !removedPreds.includes(p)),
+            };
+          }
+          return t;
+        });
+        return syncFirstChildPredecessors(next);
+      });
       showToast(`已更新任務 [${taskData.id}] ${taskData.name || ''}`, 'success');
     } else {
       // Create new
@@ -635,17 +653,55 @@ export function App() {
           ? taskData.predecessors
           : pendingPredecessors;
 
+      // Determine outlineLevel and parentId from predecessor if not explicitly provided
+      const primaryPredId = predecessors && predecessors.length > 0 ? predecessors[0] : undefined;
+      const predTask = primaryPredId ? tasks.find(t => t.id === primaryPredId) : undefined;
+      let outlineLevel = taskData.outlineLevel;
+      let parentId = taskData.parentId;
+
+      if (outlineLevel === undefined && predTask) {
+        if (predTask.isSummary) {
+          // If dragged from a summary task, child is inside it
+          outlineLevel = (predTask.outlineLevel || 1) + 1;
+          parentId = predTask.id;
+        } else {
+          // Same level and same parent as predecessor (e.g. dragging from T9 child -> T10 has same level & parent as T9)
+          outlineLevel = predTask.outlineLevel || 1;
+          parentId = predTask.parentId;
+        }
+      }
+
       const newTask: Task = {
         id: newId,
         uid: maxNum + 1,
         name: taskData.name || `Task ${newId}`,
         duration: taskData.duration ?? 1,
         category: taskData.category,
+        outlineLevel: outlineLevel || 1,
+        parentId,
         predecessors,
         x: pendingTaskPos?.x,
         y: pendingTaskPos?.y,
       };
-      setTasks(prev => [...prev, newTask]);
+
+      setTasks(prev => {
+        const next = [...prev];
+        // Insert right after the predecessor (or after its subtree if summary) to maintain natural WBS order
+        if (predTask) {
+          const predIdx = next.findIndex(t => t.id === predTask.id);
+          if (predIdx >= 0) {
+            let k = predIdx + 1;
+            const predLevel = predTask.outlineLevel || 1;
+            while (k < next.length && (next[k].outlineLevel || 1) > predLevel) {
+              k++;
+            }
+            next.splice(k, 0, newTask);
+            return syncFirstChildPredecessors(next);
+          }
+        }
+        next.push(newTask);
+        return syncFirstChildPredecessors(next);
+      });
       setPendingTaskPos(null);
       setPendingPredecessors([]);
       showToast(`已在畫布建立新任務 [${newId}] ${newTask.name}`, 'success');
@@ -656,12 +712,13 @@ export function App() {
   const handleDeleteTask = (taskId: string) => {
     pushHistory();
     setTasks(prev => {
-      return prev
+      const next = prev
         .filter(t => t.id !== taskId)
         .map(t => ({
           ...t,
           predecessors: (t.predecessors || []).filter(p => p !== taskId),
         }));
+      return syncFirstChildPredecessors(next);
     });
     showToast(`已刪除任務 [${taskId}]`, 'info');
   };
@@ -672,12 +729,13 @@ export function App() {
     pushHistory();
     const idSet = new Set(taskIds);
     setTasks(prev => {
-      return prev
+      const next = prev
         .filter(t => !idSet.has(t.id))
         .map(t => ({
           ...t,
           predecessors: (t.predecessors || []).filter(p => !idSet.has(p)),
         }));
+      return syncFirstChildPredecessors(next);
     });
     showToast(`已刪除 ${taskIds.length} 個任務`, 'info');
   };
@@ -695,7 +753,7 @@ export function App() {
       const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
       const nextTasks = [...remaining];
       nextTasks.splice(insertIdx, 0, ...moving);
-      return nextTasks;
+      return syncFirstChildPredecessors(nextTasks);
     });
     showToast(`已調整 ${sourceTaskIds.length} 項任務順序`, 'info');
   };
@@ -726,7 +784,7 @@ export function App() {
       const nextTasks = [...prev];
       const insertIdx = targetIdx < 0 ? nextTasks.length : position === 'before' ? targetIdx : targetIdx + 1;
       nextTasks.splice(insertIdx, 0, newTask);
-      return nextTasks;
+      return syncFirstChildPredecessors(nextTasks);
     });
     showToast(`已在${position === 'before' ? '上方' : '下方'}插入新任務`, 'success');
   };
@@ -786,7 +844,7 @@ export function App() {
         const nextTasks = [...prev];
         const insertIdx = targetIdx < 0 ? nextTasks.length : targetIdx + 1;
         nextTasks.splice(insertIdx, 0, ...newTasks);
-        return nextTasks;
+        return syncFirstChildPredecessors(nextTasks);
       });
       showToast(`已複製並貼上 ${clipboard.tasks.length} 項新任務`, 'success');
     }
@@ -796,8 +854,8 @@ export function App() {
   const handleAddDependency = (fromId: string, toId: string) => {
     if (fromId === toId) return;
     pushHistory();
-    setTasks(prev =>
-      prev.map(t => {
+    setTasks(prev => {
+      const next = prev.map(t => {
         if (t.id === toId && !t.predecessors.includes(fromId)) {
           return {
             ...t,
@@ -805,25 +863,38 @@ export function App() {
           };
         }
         return t;
-      })
-    );
+      });
+      return syncFirstChildPredecessors(next);
+    });
     showToast(`已建立依賴關聯：[${fromId}] ➔ [${toId}]`, 'success');
   };
 
   // Remove dependency directly (when double clicked in PERT arrow or Gantt tag)
   const handleRemoveDependency = (fromId: string, toId: string) => {
     pushHistory();
-    setTasks(prev =>
-      prev.map(t => {
+    setTasks(prev => {
+      const { parentMap, childrenMap } = resolveWBSHierarchy(prev);
+      const parentId = parentMap.get(toId);
+      const isFirstChild = parentId ? childrenMap.get(parentId)?.[0] === toId : false;
+
+      const next = prev.map(t => {
         if (t.id === toId) {
           return {
             ...t,
             predecessors: t.predecessors.filter(p => p !== fromId),
           };
         }
+        // If removing from first child, also remove from parent if present so it doesn't get re-synced
+        if (isFirstChild && t.id === parentId) {
+          return {
+            ...t,
+            predecessors: t.predecessors.filter(p => p !== fromId),
+          };
+        }
         return t;
-      })
-    );
+      });
+      return syncFirstChildPredecessors(next);
+    });
     showToast(`已刪除前置任務依賴：[${fromId}] ➔ [${toId}]`, 'info');
   };
 
@@ -840,8 +911,12 @@ export function App() {
       return;
     }
     pushHistory();
-    setTasks(prev =>
-      prev.map(t => {
+    setTasks(prev => {
+      const { parentMap, childrenMap } = resolveWBSHierarchy(prev);
+      const parentId = parentMap.get(toId);
+      const isFirstChild = parentId ? childrenMap.get(parentId)?.[0] === toId : false;
+
+      const next = prev.map(t => {
         if (t.id === toId) {
           const nextPreds = t.predecessors.map(p => (p === oldPredId ? newPredId : p));
           return {
@@ -849,9 +924,17 @@ export function App() {
             predecessors: Array.from(new Set(nextPreds)),
           };
         }
+        if (isFirstChild && t.id === parentId) {
+          const nextPreds = (t.predecessors || []).map(p => (p === oldPredId ? newPredId : p));
+          return {
+            ...t,
+            predecessors: Array.from(new Set(nextPreds)),
+          };
+        }
         return t;
-      })
-    );
+      });
+      return syncFirstChildPredecessors(next);
+    });
     showToast(`已更新前置任務編號：[${oldPredId}] ➔ [${newPredId}]`, 'success');
   };
 
@@ -930,7 +1013,7 @@ export function App() {
             setStartDate(data.startDate);
           }
           pertPositionsRef.current.clear();
-          setTasks(data.tasks);
+          setTasks(syncFirstChildPredecessors(data.tasks));
           showToast(
             `🎉 成功直接匯入 .mpp 專案「${data.projectName}」，共 ${data.tasks.length} 個任務！`,
             'success'
@@ -976,7 +1059,7 @@ export function App() {
               setInitialPertTransform({ ...data.pertTransform });
             }
 
-            setTasks(restoredTasks);
+            setTasks(syncFirstChildPredecessors(restoredTasks));
             showToast(`成功匯入專案備份檔「${data.projectName || file.name}」，共 ${data.tasks.length} 個任務！`, 'success');
           } else {
             showToast('JSON 備份檔案格式無效（缺少 tasks 陣列）', 'error');
@@ -1003,7 +1086,7 @@ export function App() {
         setProjectName(imported.projectName);
         setStartDate(imported.startDate);
         pertPositionsRef.current.clear();
-        setTasks(imported.tasks);
+        setTasks(syncFirstChildPredecessors(imported.tasks));
         showToast(
           `成功匯入 Microsoft Project 專案「${imported.projectName}」，共 ${imported.tasks.length} 個任務！`,
           'success'
@@ -1073,7 +1156,7 @@ export function App() {
   const handleLoadSample = () => {
     pushHistory();
     pertPositionsRef.current.clear();
-    setTasks(SAMPLE_PROJECT_TASKS);
+    setTasks(syncFirstChildPredecessors(SAMPLE_PROJECT_TASKS));
     setProjectName('Software Development Project');
     setStartDate('2000-02-01');
     setInitialPertTransform({ x: 80, y: 80, scale: 0.85 });

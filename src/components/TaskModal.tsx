@@ -27,6 +27,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [category, setCategory] = useState('');
   const [summaryLabel, setSummaryLabel] = useState('');
   const [predecessors, setPredecessors] = useState<string[]>([]);
+  const [inheritedFromParent, setInheritedFromParent] = useState<{ parentName: string; predIds: string[] } | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -35,13 +36,34 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       setDuration(initialTask.duration);
       setCategory(initialTask.category || '');
       setSummaryLabel(initialTask.summaryLabel || '');
-      setPredecessors(initialTask.predecessors || []);
+
+      let initialPreds = initialTask.predecessors || [];
+      // Inherit parent's predecessors if this task is the first child of its parent
+      if (initialTask.parentId) {
+        const parent = existingTasks.find(t => t.id === initialTask.parentId);
+        if (parent && parent.predecessors && parent.predecessors.length > 0) {
+          const siblings = existingTasks.filter(t => t.parentId === parent.id);
+          if (siblings.length > 0 && siblings[0].id === initialTask.id) {
+            initialPreds = Array.from(new Set([...initialPreds, ...parent.predecessors]));
+            setInheritedFromParent({ parentName: `[${parent.id}] ${parent.name}`, predIds: parent.predecessors });
+          } else {
+            setInheritedFromParent(null);
+          }
+        } else {
+          setInheritedFromParent(null);
+        }
+      } else {
+        setInheritedFromParent(null);
+      }
+
+      setPredecessors(initialPreds);
     } else {
       setName('');
       setDuration(1);
       setCategory('');
       setSummaryLabel('');
       setPredecessors(defaultPredecessors || []);
+      setInheritedFromParent(null);
     }
 
     if (isOpen) {
@@ -50,7 +72,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
         nameInputRef.current?.select();
       }, 50);
     }
-  }, [initialTask, isOpen]);
+  }, [initialTask, isOpen, existingTasks, defaultPredecessors]);
 
   if (!isOpen) return null;
 
@@ -89,6 +111,16 @@ export const TaskModal: React.FC<TaskModalProps> = ({
     'Delivery',
   ];
 
+  const primarySourcePredId = !initialTask && defaultPredecessors && defaultPredecessors.length > 0
+    ? defaultPredecessors[0]
+    : null;
+  const newSourceTask = primarySourcePredId
+    ? existingTasks.find(t => t.id === primarySourcePredId)
+    : null;
+  const newSourceParent = newSourceTask?.parentId
+    ? existingTasks.find(t => t.id === newSourceTask.parentId)
+    : null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
@@ -107,6 +139,18 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {newSourceTask && (
+            <div className="px-3 py-2 bg-blue-50/80 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center space-x-1.5">
+              <span className="text-sm">💡</span>
+              <span>
+                {newSourceTask.isSummary
+                  ? `將作為 [${newSourceTask.id} ${newSourceTask.name}] 的子任務 (階層 Level ${(newSourceTask.outlineLevel || 1) + 1})`
+                  : newSourceParent
+                  ? `將與前置任務 [${newSourceTask.id} ${newSourceTask.name}] 同為 [${newSourceParent.id} ${newSourceParent.name}] 之同階子任務 (Level ${newSourceTask.outlineLevel || 1})`
+                  : `將與前置任務 [${newSourceTask.id} ${newSourceTask.name}] 處於同一階層 (Level ${newSourceTask.outlineLevel || 1})`}
+              </span>
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
               任務名稱 (Task Name) <span className="text-red-500">*</span>
@@ -224,6 +268,11 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                           [{task.id}]
                         </span>
                         <span className="truncate">{task.name}</span>
+                        {inheritedFromParent && inheritedFromParent.predIds.includes(task.id) && (
+                          <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium shrink-0 ml-1.5 select-none">
+                            繼承自父階
+                          </span>
+                        )}
                       </div>
                       <span className="text-slate-400 shrink-0 ml-2">
                         {formatDays(task.duration)} 天

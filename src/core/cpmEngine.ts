@@ -182,14 +182,49 @@ export function resolveWBSHierarchy(tasks: Task[]): WBSInfo {
 }
 
 /**
+ * Synchronizes predecessors so that the first child of any summary task
+ * inherits the predecessor dependencies of that summary task.
+ */
+export function syncFirstChildPredecessors(tasks: Task[]): Task[] {
+  const wbs = resolveWBSHierarchy(tasks);
+  let changed = false;
+  const newTasks = tasks.map(t => ({
+    ...t,
+    predecessors: [...(t.predecessors || [])],
+  }));
+  const taskMap = new Map<string, Task>();
+  newTasks.forEach(t => taskMap.set(t.id, t));
+
+  wbs.childrenMap.forEach((children, parentId) => {
+    if (children.length > 0) {
+      const parentTask = taskMap.get(parentId);
+      const firstChild = taskMap.get(children[0]);
+      if (parentTask && firstChild && parentTask.predecessors && parentTask.predecessors.length > 0) {
+        const descendants = new Set(wbs.descendantsMap.get(parentId) || []);
+        const missingPreds = parentTask.predecessors.filter(
+          p => !firstChild.predecessors.includes(p) && p !== firstChild.id && !descendants.has(p)
+        );
+        if (missingPreds.length > 0) {
+          firstChild.predecessors = [...firstChild.predecessors, ...missingPreds];
+          changed = true;
+        }
+      }
+    }
+  });
+
+  return changed ? newTasks : tasks;
+}
+
+/**
  * Calculates CPM schedule (ES, EF, LS, LF, Float, Critical Path) with WBS Summary Task Rollup
  */
 export function calculateCPM(
   tasksInput: Task[],
   projectStartDate: string = '2000-02-01'
 ): CPMCalculationResult {
+  const syncedTasks = syncFirstChildPredecessors(tasksInput);
   // Deep clone tasks
-  const tasks: Task[] = tasksInput.map(t => ({
+  const tasks: Task[] = syncedTasks.map(t => ({
     ...t,
     predecessors: [...(t.predecessors || [])],
     duration: roundDays(Math.max(0, Number(t.duration) || 0)),
