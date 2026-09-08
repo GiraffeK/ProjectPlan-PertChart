@@ -1,4 +1,5 @@
-import type { Task } from './types';
+import type { Task, ScheduleMode, Holiday } from './types';
+import { calculateTaskDates } from './calendarEngine';
 
 export interface CPMCalculationResult {
   tasks: Task[];
@@ -299,7 +300,9 @@ export function syncFirstChildPredecessors(tasks: Task[]): Task[] {
  */
 export function calculateCPM(
   tasksInput: Task[],
-  projectStartDate: string = '2000-02-01'
+  projectStartDate: string = '2000-02-01',
+  scheduleMode: ScheduleMode = 'working',
+  customHolidays: (Holiday | string)[] = []
 ): CPMCalculationResult {
   const syncedTasks = syncFirstChildPredecessors(tasksInput);
   // Deep clone tasks
@@ -535,9 +538,16 @@ export function calculateCPM(
       task.freeFloat = Math.max(0, roundDays(minSuccES - (task.earlyFinish ?? 0), 2));
     }
 
-    // Dates
-    task.startDate = addDaysToDate(projectStartDate, task.earlyStart ?? 0);
-    task.finishDate = addDaysToDate(projectStartDate, task.earlyFinish ?? 0);
+    // Dates calculated by Calendar Engine (respecting working days / holidays / weekends)
+    const { startDate, finishDate } = calculateTaskDates(
+      projectStartDate,
+      task.earlyStart ?? 0,
+      task.duration ?? 1,
+      customHolidays,
+      scheduleMode
+    );
+    task.startDate = startDate;
+    task.finishDate = finishDate;
   }
 
   const criticalPathTaskIds = tasks.filter(t => t.isCritical).map(t => t.id);

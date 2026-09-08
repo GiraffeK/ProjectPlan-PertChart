@@ -1,5 +1,13 @@
 export type DependencyType = 'FS' | 'SS' | 'FF' | 'SF';
 
+export type ScheduleMode = 'working' | 'calendar';
+
+export interface Holiday {
+  id: string;
+  date: string; // YYYY-MM-DD
+  name?: string; // e.g. "國慶日", "春節"
+}
+
 export interface Dependency {
   fromTaskId: string;
   toTaskId: string;
@@ -48,6 +56,8 @@ export interface ProjectData {
   id: string;
   name: string;
   startDate: string; // ISO date string (YYYY-MM-DD)
+  scheduleMode?: ScheduleMode; // 'working' | 'calendar'
+  holidays?: Holiday[];
   tasks: Task[];
   criticalPathDuration: number;
   criticalPathTaskIds: string[];

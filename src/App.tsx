@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import type { Task, ProjectData } from './core/types';
+import type { Task, ProjectData, ScheduleMode, Holiday } from './core/types';
 import { calculateCPM, resolveWBSHierarchy, syncFirstChildPredecessors, getTodayDateStr } from './core/cpmEngine';
 import { SAMPLE_PROJECT_TASKS } from './data/sampleProject';
 import { exportToMSProjectXML, parseMSProjectXML } from './core/msProject';
@@ -12,6 +12,7 @@ import { MppGuideModal } from './components/MppGuideModal';
 import { SaveAsModal } from './components/SaveAsModal';
 import { HelpModal } from './components/HelpModal';
 import { ConfirmNewProjectModal } from './components/ConfirmNewProjectModal';
+import { HolidayModal } from './components/HolidayModal';
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 
 const DEFAULT_INITIAL_TASK: Task[] = [
@@ -34,6 +35,8 @@ interface InitialProjectState {
   tasks: Task[];
   projectName: string;
   startDate: string;
+  scheduleMode?: ScheduleMode;
+  holidays?: Holiday[];
   pertTransform?: { x: number; y: number; scale: number };
 }
 
@@ -53,6 +56,8 @@ const loadInitialProject = (): InitialProjectState => {
           tasks: syncFirstChildPredecessors(loadedTasks),
           projectName: parsed.projectName || 'My Project',
           startDate: parsed.startDate || getTodayDateStr(),
+          scheduleMode: (parsed.scheduleMode as ScheduleMode) || 'working',
+          holidays: Array.isArray(parsed.holidays) ? parsed.holidays : [],
           pertTransform: parsed.pertTransform,
         };
       }
@@ -64,6 +69,8 @@ const loadInitialProject = (): InitialProjectState => {
     tasks: syncFirstChildPredecessors(DEFAULT_INITIAL_TASK),
     projectName: 'My Project',
     startDate: getTodayDateStr(),
+    scheduleMode: 'working',
+    holidays: [],
   };
 };
 
@@ -72,6 +79,9 @@ export function App() {
   const [tasks, setTasks] = useState<Task[]>(() => syncFirstChildPredecessors(initialData.tasks));
   const [projectName, setProjectName] = useState<string>(initialData.projectName);
   const [startDate, setStartDate] = useState<string>(initialData.startDate);
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(() => initialData.scheduleMode || 'working');
+  const [customHolidays, setCustomHolidays] = useState<Holiday[]>(() => initialData.holidays || []);
+  const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
   const [initialPertTransform, setInitialPertTransform] = useState<{ x: number; y: number; scale: number } | undefined>(
     () => initialData.pertTransform
   );
@@ -123,12 +133,14 @@ export function App() {
     tasks: Task[];
     projectName: string;
     startDate: string;
+    scheduleMode: ScheduleMode;
+    holidays: Holiday[];
   }
   const [undoStack, setUndoStack] = useState<HistorySnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<HistorySnapshot[]>([]);
 
-  const stateRef = useRef({ tasks, projectName, startDate });
-  stateRef.current = { tasks, projectName, startDate };
+  const stateRef = useRef({ tasks, projectName, startDate, scheduleMode, customHolidays });
+  stateRef.current = { tasks, projectName, startDate, scheduleMode, customHolidays };
 
   const pushHistory = () => {
     setUndoStack(prev => {
@@ -138,6 +150,8 @@ export function App() {
           tasks: stateRef.current.tasks,
           projectName: stateRef.current.projectName,
           startDate: stateRef.current.startDate,
+          scheduleMode: stateRef.current.scheduleMode,
+          holidays: [...stateRef.current.customHolidays],
         },
       ];
       if (next.length > 50) next.shift();
@@ -156,11 +170,15 @@ export function App() {
         tasks: stateRef.current.tasks,
         projectName: stateRef.current.projectName,
         startDate: stateRef.current.startDate,
+        scheduleMode: stateRef.current.scheduleMode,
+        holidays: [...stateRef.current.customHolidays],
       },
     ]);
     setTasks(previous.tasks);
     setProjectName(previous.projectName);
     setStartDate(previous.startDate);
+    if (previous.scheduleMode) setScheduleMode(previous.scheduleMode);
+    if (previous.holidays) setCustomHolidays(previous.holidays);
     showToast('↩️ 已復原上一步操作 (Undo)', 'info');
   };
 
@@ -174,11 +192,15 @@ export function App() {
         tasks: stateRef.current.tasks,
         projectName: stateRef.current.projectName,
         startDate: stateRef.current.startDate,
+        scheduleMode: stateRef.current.scheduleMode,
+        holidays: [...stateRef.current.customHolidays],
       },
     ]);
     setTasks(next.tasks);
     setProjectName(next.projectName);
     setStartDate(next.startDate);
+    if (next.scheduleMode) setScheduleMode(next.scheduleMode);
+    if (next.holidays) setCustomHolidays(next.holidays);
     showToast('↪️ 已重做操作 (Redo)', 'info');
   };
 
@@ -195,10 +217,10 @@ export function App() {
   // Selection state shared across Gantt and PERT charts
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
 
-  // Recalculate CPM automatically whenever tasks or start date changes
+  // Recalculate CPM automatically whenever tasks, start date, scheduleMode, or holidays change
   const cpmResult = useMemo(() => {
-    return calculateCPM(tasks, startDate);
-  }, [tasks, startDate]);
+    return calculateCPM(tasks, startDate, scheduleMode, customHolidays);
+  }, [tasks, startDate, scheduleMode, customHolidays]);
 
   // Save project:
   // - manual save writes to original project name: pertchart_project_${projectName}
@@ -213,6 +235,8 @@ export function App() {
       const data = {
         projectName,
         startDate,
+        scheduleMode,
+        holidays: customHolidays,
         tasks: enrichedTasks,
         pertTransform: pertTransformRef.current,
         pertPositions,
@@ -247,6 +271,8 @@ export function App() {
       const data = {
         projectName: trimmed,
         startDate,
+        scheduleMode,
+        holidays: customHolidays,
         tasks: enrichedTasks,
         pertTransform: pertTransformRef.current,
         pertPositions,
@@ -380,6 +406,31 @@ export function App() {
     } catch (err: any) {
       showToast('另存新檔失敗：' + (err.message || err), 'error');
     }
+  };
+
+  // Holiday and Schedule Mode Handlers
+  const handleAddHoliday = (holiday: { date: string; name: string }) => {
+    pushHistory();
+    const newH: Holiday = {
+      id: `H_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      date: holiday.date,
+      name: holiday.name,
+    };
+    setCustomHolidays(prev => [...prev, newH]);
+    showToast(`已新增特定假日：${holiday.date} (${holiday.name || '自訂假日'})`, 'success');
+  };
+
+  const handleRemoveHoliday = (holidayId: string) => {
+    pushHistory();
+    setCustomHolidays(prev => prev.filter(h => h.id !== holidayId));
+    showToast('已移除自訂假日', 'info');
+  };
+
+  const handleChangeScheduleMode = (mode: ScheduleMode) => {
+    if (mode === scheduleMode) return;
+    pushHistory();
+    setScheduleMode(mode);
+    showToast(`已切換日程規劃模式為「${mode === 'working' ? '💼 工作天' : '📆 日曆天'}」`, 'info');
   };
 
   // Update schedule (start offset or duration) from Gantt drag
@@ -554,7 +605,7 @@ export function App() {
       handleSaveProject(false);
     }, 1200);
     return () => clearTimeout(timer);
-  }, [tasks, projectName, startDate]);
+  }, [tasks, projectName, startDate, scheduleMode, customHolidays]);
 
   // Keyboard shortcuts: Ctrl+S (Save), Ctrl+Z (Undo), Ctrl+Y / Ctrl+Shift+Z (Redo)
   useEffect(() => {
@@ -1041,6 +1092,8 @@ export function App() {
             pushHistory();
             setProjectName(data.projectName || 'Imported Project');
             if (data.startDate) setStartDate(data.startDate);
+            if (data.scheduleMode) setScheduleMode(data.scheduleMode);
+            if (Array.isArray(data.holidays)) setCustomHolidays(data.holidays);
 
             const posRecord = data.pertPositions || {};
             const restoredTasks: Task[] = data.tasks.map((t: any) => ({
@@ -1112,7 +1165,11 @@ export function App() {
     const backup = {
       projectName,
       startDate,
+      scheduleMode,
+      holidays: customHolidays,
       tasks: enrichedTasks,
+      criticalPathDuration: cpmResult.criticalPathDuration,
+      criticalPathTaskIds: cpmResult.criticalPathTaskIds,
       pertTransform: pertTransformRef.current,
       pertPositions,
     };
@@ -1176,6 +1233,8 @@ export function App() {
     setTasks(initialTasks);
     setProjectName('My Project');
     setStartDate(today);
+    setScheduleMode('working');
+    setCustomHolidays([]);
     setInitialPertTransform({ x: 80, y: 80, scale: 0.85 });
     setSelectedTaskIds(new Set());
     setUndoStack([]);
@@ -1232,6 +1291,10 @@ export function App() {
         onOpenHelp={() => setIsHelpOpen(true)}
         startDate={startDate}
         onChangeStartDate={setStartDate}
+        scheduleMode={scheduleMode}
+        onChangeScheduleMode={handleChangeScheduleMode}
+        customHolidaysCount={customHolidays.length}
+        onOpenHolidays={() => setIsHolidayModalOpen(true)}
         criticalPathDuration={cpmResult.criticalPathDuration}
         hasCycle={cpmResult.hasCycle}
       />
@@ -1287,6 +1350,8 @@ export function App() {
             criticalPathDuration={cpmResult.criticalPathDuration}
             criticalPathTaskIds={cpmResult.criticalPathTaskIds}
             projectStartDate={startDate}
+            scheduleMode={scheduleMode}
+            holidays={customHolidays}
             selectedTaskIds={selectedTaskIds}
             onSelectTaskIds={setSelectedTaskIds}
             onSelectTask={t => {
@@ -1358,6 +1423,8 @@ export function App() {
                 criticalPathDuration={cpmResult.criticalPathDuration}
                 criticalPathTaskIds={cpmResult.criticalPathTaskIds}
                 projectStartDate={startDate}
+                scheduleMode={scheduleMode}
+                holidays={customHolidays}
                 selectedTaskIds={selectedTaskIds}
                 onSelectTaskIds={setSelectedTaskIds}
                 onSelectTask={t => {
@@ -1440,6 +1507,15 @@ export function App() {
         onClose={() => setIsConfirmNewProjectOpen(false)}
         onConfirm={handleCreateNewProject}
         projectName={projectName}
+      />
+
+      {/* Holiday Management Modal */}
+      <HolidayModal
+        isOpen={isHolidayModalOpen}
+        onClose={() => setIsHolidayModalOpen(false)}
+        holidays={customHolidays}
+        onAddHoliday={handleAddHoliday}
+        onRemoveHoliday={handleRemoveHoliday}
       />
 
       {/* Toast Floating Notification */}

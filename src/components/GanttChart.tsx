@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import type { Task } from '../core/types';
-import { formatDateForDisplay, formatDays, getParentBadgeLabel } from '../core/cpmEngine';
+import type { Task, ScheduleMode, Holiday } from '../core/types';
+import { formatDateForDisplay, formatDays, getParentBadgeLabel, addDaysToDate } from '../core/cpmEngine';
+import { isNonWorkingDay, getHolidayLabel, getCalendarDayDifference } from '../core/calendarEngine';
 import { TaskContextMenu } from './TaskContextMenu';
 import { Calendar, Filter, ZoomIn, ZoomOut, GitBranch, Trash2, Edit3, X } from 'lucide-react';
 
@@ -9,6 +10,8 @@ interface GanttChartProps {
   criticalPathDuration: number;
   criticalPathTaskIds: string[];
   projectStartDate: string;
+  scheduleMode?: ScheduleMode;
+  holidays?: Holiday[];
   selectedTaskIds?: Set<string>;
   onSelectTaskIds?: (taskIds: Set<string>) => void;
   onSelectTask: (task: Task) => void;
@@ -43,6 +46,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   criticalPathDuration,
   criticalPathTaskIds,
   projectStartDate,
+  scheduleMode = 'working',
+  holidays = [],
   selectedTaskIds: externalSelectedTaskIds,
   onSelectTaskIds,
   onSelectTask,
@@ -138,7 +143,21 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     return tasks.filter(t => criticalSet.has(t.id));
   }, [tasks, onlyCritical, criticalSet]);
 
-  const totalDays = Math.max(criticalPathDuration + 15, 40);
+  const maxCalendarSpan = useMemo(() => {
+    let max = criticalPathDuration;
+    tasks.forEach(t => {
+      if (t.finishDate) {
+        const diff = getCalendarDayDifference(projectStartDate, t.finishDate);
+        if (diff > max) max = diff;
+      }
+      if (t.earlyFinish && t.earlyFinish > max) {
+        max = t.earlyFinish;
+      }
+    });
+    return max;
+  }, [tasks, projectStartDate, criticalPathDuration]);
+
+  const totalDays = Math.max(maxCalendarSpan + 15, 40);
 
   // Generate day tick markers
   const timelineDays = useMemo(() => {
@@ -187,8 +206,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       const toRow = taskRowIndexMap.get(task.id);
       if (toRow === undefined) return;
 
-      const toEs = barDrag?.taskId === task.id ? barDrag.currentStartDay : (task.earlyStart ?? 0);
-      const toX = toEs * dayWidth;
+      const toCalStart = task.startDate ? getCalendarDayDifference(projectStartDate, task.startDate) : (task.earlyStart ?? 0);
+      const toX = barDrag?.taskId === task.id ? barDrag.currentStartDay * dayWidth : toCalStart * dayWidth;
       const toY = toRow * ROW_HEIGHT + ROW_HEIGHT / 2;
 
       if (!task.predecessors || task.predecessors.length === 0) return;
@@ -200,9 +219,13 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         const predTask = taskByIdMap.get(predId);
         if (!predTask) return;
 
-        const pEs = barDrag?.taskId === predId ? barDrag.currentStartDay : (predTask.earlyStart ?? 0);
-        const pDur = barDrag?.taskId === predId ? barDrag.currentDuration : predTask.duration;
-        const fromX = (pEs + pDur) * dayWidth;
+        const pCalStart = predTask.startDate ? getCalendarDayDifference(projectStartDate, predTask.startDate) : (predTask.earlyStart ?? 0);
+        const pCalFinish = predTask.finishDate ? getCalendarDayDifference(projectStartDate, predTask.finishDate) : (predTask.earlyFinish ?? 0);
+        const pSpan = predTask.duration === 0 ? 0 : Math.max(1, pCalFinish - pCalStart + 1);
+
+        const fromX = barDrag?.taskId === predId
+          ? (barDrag.currentStartDay + barDrag.currentDuration) * dayWidth
+          : (pCalStart + pSpan) * dayWidth;
         const fromY = predRow * ROW_HEIGHT + ROW_HEIGHT / 2;
 
         const isCriticalEdge = criticalSet.has(predId) && criticalSet.has(task.id) &&
@@ -811,18 +834,28 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             {/* Timeline Day Header */}
             <div className="h-12 border-b border-slate-200 bg-slate-100/90 sticky top-0 z-20 flex">
               {timelineDays.map(day => {
+                const dateStr = addDaysToDate(projectStartDate, day);
+                const isOff = isNonWorkingDay(dateStr, holidays, scheduleMode);
+                const holidayLabel = getHolidayLabel(dateStr, holidays);
                 const isMajor = day % 7 === 0;
+
                 return (
                   <div
                     key={day}
                     style={{ width: `${dayWidth}px` }}
-                    className={`shrink-0 border-r border-slate-200/80 flex flex-col justify-end items-center pb-1 text-[10px] font-mono ${
-                      isMajor
+                    title={`${dateStr} (Day ${day})${holidayLabel ? ` - ${holidayLabel}` : ''}`}
+                    className={`shrink-0 border-r border-slate-200/80 flex flex-col justify-between items-center py-1 text-[10px] font-mono select-none ${
+                      isOff
+                        ? 'bg-amber-100/50 text-amber-900 font-semibold'
+                        : isMajor
                         ? 'bg-slate-200/60 font-bold text-slate-800'
-                        : 'text-slate-400'
+                        : 'text-slate-500'
                     }`}
                   >
-                    {day}
+                    <span className="text-[8.5px] font-sans truncate w-full text-center text-amber-700/80 leading-none">
+                      {isOff ? (holidayLabel?.slice(0, 2) || '休') : ''}
+                    </span>
+                    <span className="leading-none">{day}</span>
                   </div>
                 );
               })}
@@ -830,15 +863,23 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
             {/* Vertical grid background lines */}
             <div className="absolute top-12 bottom-0 left-0 right-0 pointer-events-none flex">
-              {timelineDays.map(day => (
-                <div
-                  key={day}
-                  style={{ width: `${dayWidth}px` }}
-                  className={`shrink-0 border-r ${
-                    day % 7 === 0 ? 'border-slate-300/70 bg-slate-100/20' : 'border-slate-200/40'
-                  }`}
-                />
-              ))}
+              {timelineDays.map(day => {
+                const dateStr = addDaysToDate(projectStartDate, day);
+                const isOff = isNonWorkingDay(dateStr, holidays, scheduleMode);
+                return (
+                  <div
+                    key={day}
+                    style={{ width: `${dayWidth}px` }}
+                    className={`shrink-0 border-r ${
+                      isOff
+                        ? 'bg-slate-200/40 border-slate-200/80'
+                        : day % 7 === 0
+                        ? 'border-slate-300/70 bg-slate-100/20'
+                        : 'border-slate-200/40'
+                    }`}
+                  />
+                );
+              })}
             </div>
 
             {/* SVG Dependency Lines & Arrowheads Layer */}
@@ -979,8 +1020,17 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                 const ef = es + duration;
                 const float = task.totalFloat ?? 0;
 
-                const barLeft = es * dayWidth;
-                const barWidth = Math.max(duration * dayWidth, 14);
+                // Calendar-accurate positioning based on task.startDate & finishDate
+                const calStart = task.startDate ? getCalendarDayDifference(projectStartDate, task.startDate) : es;
+                const calFinish = task.finishDate ? getCalendarDayDifference(projectStartDate, task.finishDate) : ef;
+                const calSpan = task.duration === 0 ? 0 : Math.max(1, calFinish - calStart + 1);
+
+                const barLeft = isDraggingThis ? es * dayWidth : calStart * dayWidth;
+                const barWidth = isDraggingThis
+                  ? Math.max(duration * dayWidth, 14)
+                  : task.duration === 0
+                  ? 16
+                  : Math.max(calSpan * dayWidth, 14);
                 const slackWidth = float * dayWidth;
 
                 const isSelected = selectedTaskIds.has(task.id);
@@ -1000,7 +1050,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                     {float > 0 && !isDraggingThis && (
                       <div
                         style={{
-                          left: `${(task.earlyStart ?? 0) * dayWidth + task.duration * dayWidth}px`,
+                          left: `${barLeft + barWidth}px`,
                           width: `${slackWidth}px`,
                           height: '18px',
                         }}

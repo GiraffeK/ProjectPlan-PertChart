@@ -19,7 +19,10 @@ import {
   Redo2,
   ChevronDown,
   Folder,
+  Briefcase,
+  CalendarDays,
 } from 'lucide-react';
+import type { ScheduleMode } from '../core/types';
 
 export type ViewMode = 'pert' | 'gantt' | 'split' | 'table';
 
@@ -46,6 +49,10 @@ interface ToolbarProps {
   onOpenHelp?: () => void;
   startDate: string;
   onChangeStartDate: (date: string) => void;
+  scheduleMode?: ScheduleMode;
+  onChangeScheduleMode?: (mode: ScheduleMode) => void;
+  customHolidaysCount?: number;
+  onOpenHolidays?: () => void;
   criticalPathDuration?: number;
   hasCycle?: boolean;
 }
@@ -72,6 +79,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onOpenHelp,
   startDate,
   onChangeStartDate,
+  scheduleMode = 'working',
+  onChangeScheduleMode,
+  customHolidaysCount = 0,
+  onOpenHolidays,
   hasCycle,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -347,6 +358,53 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           className="bg-transparent text-white font-mono text-xs focus:outline-none cursor-pointer"
         />
       </div>
+
+      {/* 6.1 Schedule Mode Toggle (工作天 / 日曆天) */}
+      {onChangeScheduleMode && (
+        <div className="flex items-center bg-slate-800/80 p-0.5 rounded-lg border border-slate-700 space-x-0.5 shrink-0 text-xs">
+          <button
+            onClick={() => onChangeScheduleMode('working')}
+            title="以「工作天」做日程規劃：遇週末、固定公休 (12/25, 01/01) 及自訂假日自動順延，不扣除工期"
+            className={`flex items-center space-x-1 px-2 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+              scheduleMode === 'working'
+                ? 'bg-amber-600 text-white shadow-xs font-bold'
+                : 'text-slate-400 hover:text-white hover:bg-slate-700/60'
+            }`}
+          >
+            <Briefcase size={12} />
+            <span>工作天</span>
+          </button>
+          <button
+            onClick={() => onChangeScheduleMode('calendar')}
+            title="以「日曆天」做日程規劃：每日皆計為排程天數（連續日曆日），不排除假日"
+            className={`flex items-center space-x-1 px-2 py-1 rounded-md text-xs font-medium transition-all cursor-pointer ${
+              scheduleMode === 'calendar'
+                ? 'bg-amber-600 text-white shadow-xs font-bold'
+                : 'text-slate-400 hover:text-white hover:bg-slate-700/60'
+            }`}
+          >
+            <CalendarDays size={12} />
+            <span>日曆天</span>
+          </button>
+        </div>
+      )}
+
+      {/* 6.2 Holiday Management Button */}
+      {onOpenHolidays && (
+        <button
+          onClick={onOpenHolidays}
+          title="設定特定假日 (預設週六日、12/25、1/1，可自訂新增國定或特休假日)"
+          className="flex items-center space-x-1.5 px-2 py-1 bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-xs font-medium transition-colors cursor-pointer shrink-0"
+        >
+          <Calendar size={12} className="text-amber-400" />
+          <span>假日設定</span>
+          {customHolidaysCount > 0 && (
+            <span className="px-1.5 py-0.2 bg-amber-500 text-slate-950 font-bold rounded-full text-[10px]">
+              {customHolidaysCount}
+            </span>
+          )}
+        </button>
+      )}
 
       <div className="h-4 w-px bg-slate-700 mx-0.5 shrink-0" />
 
