@@ -140,6 +140,7 @@ export interface WBSInfo {
   parentMap: Map<string, string>; // childId -> direct parentId
   childrenMap: Map<string, string[]>; // parentId -> direct childrenIds
   descendantsMap: Map<string, string[]>; // parentId -> all descendantIds
+  ancestorsMap: Map<string, string[]>; // childId -> all ancestorIds
   summaryTaskIds: Set<string>;
 }
 
@@ -204,22 +205,46 @@ export function resolveWBSHierarchy(tasks: Task[]): WBSInfo {
     descendantsMap.set(pId, all);
     return all;
   }
-  summaryTaskIds.forEach(pId => getDescendants(pId));
+  tasks.forEach(t => getDescendants(t.id));
 
-  return { parentMap, childrenMap, descendantsMap, summaryTaskIds };
+  // Build ancestorsMap
+  const ancestorsMap = new Map<string, string[]>();
+  tasks.forEach(t => {
+    const ancestors: string[] = [];
+    let curr = parentMap.get(t.id);
+    while (curr) {
+      ancestors.push(curr);
+      curr = parentMap.get(curr);
+    }
+    ancestorsMap.set(t.id, ancestors);
+  });
+
+  return { parentMap, childrenMap, descendantsMap, ancestorsMap, summaryTaskIds };
 }
 
 /**
  * Synchronizes predecessors so that the first child of any summary task
  * inherits the predecessor dependencies of that summary task.
+ * Also cleans invalid ancestor / descendant dependencies that cause circular feedback loops.
  */
 export function syncFirstChildPredecessors(tasks: Task[]): Task[] {
   const wbs = resolveWBSHierarchy(tasks);
   let changed = false;
-  const newTasks = tasks.map(t => ({
-    ...t,
-    predecessors: [...(t.predecessors || [])],
-  }));
+
+  // First pass: strip any dependencies where a task depends on its own ancestor or descendant
+  const newTasks = tasks.map(t => {
+    const ancestors = new Set(wbs.ancestorsMap.get(t.id) || []);
+    const descendants = new Set(wbs.descendantsMap.get(t.id) || []);
+    const filtered = (t.predecessors || []).filter(p => p !== t.id && !ancestors.has(p) && !descendants.has(p));
+    if (filtered.length !== (t.predecessors || []).length) {
+      changed = true;
+    }
+    return {
+      ...t,
+      predecessors: filtered,
+    };
+  });
+
   const taskMap = new Map<string, Task>();
   newTasks.forEach(t => taskMap.set(t.id, t));
 
@@ -229,8 +254,9 @@ export function syncFirstChildPredecessors(tasks: Task[]): Task[] {
       const firstChild = taskMap.get(children[0]);
       if (parentTask && firstChild && parentTask.predecessors && parentTask.predecessors.length > 0) {
         const descendants = new Set(wbs.descendantsMap.get(parentId) || []);
+        const ancestors = new Set(wbs.ancestorsMap.get(firstChild.id) || []);
         const missingPreds = parentTask.predecessors.filter(
-          p => !firstChild.predecessors.includes(p) && p !== firstChild.id && !descendants.has(p)
+          p => !firstChild.predecessors.includes(p) && p !== firstChild.id && !descendants.has(p) && !ancestors.has(p)
         );
         if (missingPreds.length > 0) {
           firstChild.predecessors = [...firstChild.predecessors, ...missingPreds];
@@ -263,7 +289,7 @@ export function calculateCPM(
   tasks.forEach(t => taskMap.set(t.id, t));
 
   // Resolve hierarchy
-  const { parentMap, childrenMap, descendantsMap, summaryTaskIds } = resolveWBSHierarchy(tasks);
+  const { parentMap, childrenMap, descendantsMap, ancestorsMap, summaryTaskIds } = resolveWBSHierarchy(tasks);
 
   // Annotate tasks with summary information
   tasks.forEach(t => {
@@ -282,9 +308,12 @@ export function calculateCPM(
 
   tasks.forEach(t => {
     successorsMap.set(t.id, []);
-    // Filter predecessors to only existing valid tasks (and not self or descendants)
+    // Filter predecessors to only existing valid tasks (and not self, descendants, or ancestors)
     const descendants = new Set(descendantsMap.get(t.id) || []);
-    const validPreds = t.predecessors.filter(pId => taskMap.has(pId) && pId !== t.id && !descendants.has(pId));
+    const ancestors = new Set(ancestorsMap.get(t.id) || []);
+    const validPreds = t.predecessors.filter(
+      pId => taskMap.has(pId) && pId !== t.id && !descendants.has(pId) && !ancestors.has(pId)
+    );
     predecessorsMap.set(t.id, validPreds);
   });
 
