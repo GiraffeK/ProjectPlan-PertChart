@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import type { Task, ProjectData } from './core/types';
-import { calculateCPM, resolveWBSHierarchy, syncFirstChildPredecessors } from './core/cpmEngine';
+import { calculateCPM, resolveWBSHierarchy, syncFirstChildPredecessors, getTodayDateStr } from './core/cpmEngine';
 import { SAMPLE_PROJECT_TASKS } from './data/sampleProject';
 import { exportToMSProjectXML, parseMSProjectXML } from './core/msProject';
 import { PertChart, type NodePosition } from './components/PertChart';
@@ -52,7 +52,7 @@ const loadInitialProject = (): InitialProjectState => {
         return {
           tasks: syncFirstChildPredecessors(loadedTasks),
           projectName: parsed.projectName || 'My Project',
-          startDate: parsed.startDate || new Date().toISOString().split('T')[0],
+          startDate: parsed.startDate || getTodayDateStr(),
           pertTransform: parsed.pertTransform,
         };
       }
@@ -63,7 +63,7 @@ const loadInitialProject = (): InitialProjectState => {
   return {
     tasks: syncFirstChildPredecessors(DEFAULT_INITIAL_TASK),
     projectName: 'My Project',
-    startDate: new Date().toISOString().split('T')[0],
+    startDate: getTodayDateStr(),
   };
 };
 
@@ -1170,7 +1170,7 @@ export function App() {
   // Execute resetting to first-time entrance state (新增專案)
   const handleCreateNewProject = () => {
     pushHistory();
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayDateStr();
     const initialTasks = syncFirstChildPredecessors(DEFAULT_INITIAL_TASK);
     pertPositionsRef.current.clear();
     setTasks(initialTasks);

@@ -10,15 +10,43 @@ export interface CPMCalculationResult {
 }
 
 /**
+ * Returns today's date formatted as local YYYY-MM-DD avoiding UTC midnight timezone shift
+ */
+export function getTodayDateStr(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
  * Adds days to a Date string (YYYY-MM-DD) and returns new Date string
  */
 export function addDaysToDate(dateStr: string, days: number): string {
+  if (!dateStr) return dateStr;
+  const parts = dateStr.trim().split('T')[0].split('-');
+  if (parts.length === 3) {
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const d = parseInt(parts[2], 10);
+    if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+      const utcDate = new Date(Date.UTC(y, m - 1, d));
+      utcDate.setUTCDate(utcDate.getUTCDate() + Math.round(days));
+      return utcDate.toISOString().split('T')[0];
+    }
+  }
+
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) {
     return dateStr;
   }
-  date.setDate(date.getDate() + Math.round(days));
-  return date.toISOString().split('T')[0];
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const d = date.getDate();
+  const utcDate = new Date(Date.UTC(y, m, d));
+  utcDate.setUTCDate(utcDate.getUTCDate() + Math.round(days));
+  return utcDate.toISOString().split('T')[0];
 }
 
 /**
