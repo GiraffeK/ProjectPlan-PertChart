@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { Task, ScheduleMode, Holiday } from '../core/types';
 import { formatDateForDisplay, formatDays, getParentBadgeLabel, addDaysToDate } from '../core/cpmEngine';
-import { isNonWorkingDay, getHolidayLabel, getCalendarDayDifference } from '../core/calendarEngine';
+import { isNonWorkingDay, getHolidayLabel, getCalendarDayDifference, parseUTCDate } from '../core/calendarEngine';
 import { TaskContextMenu } from './TaskContextMenu';
 import { Calendar, Filter, ZoomIn, ZoomOut, GitBranch, Trash2, Edit3, X } from 'lucide-react';
 
@@ -143,6 +143,34 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     return tasks.filter(t => criticalSet.has(t.id));
   }, [tasks, onlyCritical, criticalSet]);
 
+  // Container ref & viewport width tracking to dynamically fill all zoom levels with future calendar dates
+  const timelineContainerRef = useRef<HTMLDivElement>(null);
+  const [timelineViewportWidth, setTimelineViewportWidth] = useState<number>(1200);
+
+  useEffect(() => {
+    const updateWidth = () => {
+      if (timelineContainerRef.current) {
+        const cw = timelineContainerRef.current.clientWidth;
+        if (cw > 0) {
+          setTimelineViewportWidth(cw);
+        }
+      }
+    };
+    updateWidth();
+
+    const ro = new ResizeObserver(() => {
+      updateWidth();
+    });
+    if (timelineContainerRef.current) {
+      ro.observe(timelineContainerRef.current);
+    }
+    window.addEventListener('resize', updateWidth);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', updateWidth);
+    };
+  }, []);
+
   const maxCalendarSpan = useMemo(() => {
     let max = criticalPathDuration;
     tasks.forEach(t => {
@@ -157,7 +185,11 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     return max;
   }, [tasks, projectStartDate, criticalPathDuration]);
 
-  const totalDays = Math.max(maxCalendarSpan + 15, 40);
+  // Dynamically compute totalDays so the timeline NEVER has blank space when zooming out or on wide screens
+  const totalDays = useMemo(() => {
+    const daysToFillViewport = Math.ceil((timelineViewportWidth || 1200) / dayWidth);
+    return Math.max(maxCalendarSpan + 15, daysToFillViewport + 15, 45);
+  }, [maxCalendarSpan, timelineViewportWidth, dayWidth]);
 
   // Generate day tick markers
   const timelineDays = useMemo(() => {
@@ -167,6 +199,54 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     }
     return days;
   }, [totalDays]);
+
+  // Group consecutive days into Month segments for the Top Tier header banner
+  const monthSegments = useMemo(() => {
+    const segments: Array<{
+      yearMonth: string;
+      label: string;
+      daysCount: number;
+    }> = [];
+    if (timelineDays.length === 0) return segments;
+
+    let currentYM = '';
+    let currentLabel = '';
+    let currentCount = 0;
+
+    timelineDays.forEach(day => {
+      const dateStr = addDaysToDate(projectStartDate, day);
+      if (!dateStr) return;
+      const parts = dateStr.split('-');
+      if (parts.length >= 2) {
+        const ym = `${parts[0]}-${parts[1]}`;
+        const label = `${parts[0]}年 ${parseInt(parts[1], 10)}月`;
+        if (ym !== currentYM) {
+          if (currentCount > 0) {
+            segments.push({
+              yearMonth: currentYM,
+              label: currentLabel,
+              daysCount: currentCount,
+            });
+          }
+          currentYM = ym;
+          currentLabel = label;
+          currentCount = 1;
+        } else {
+          currentCount++;
+        }
+      }
+    });
+
+    if (currentCount > 0) {
+      segments.push({
+        yearMonth: currentYM,
+        label: currentLabel,
+        daysCount: currentCount,
+      });
+    }
+
+    return segments;
+  }, [timelineDays, projectStartDate]);
 
   const ROW_HEIGHT = 44;
 
@@ -823,42 +903,94 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         </div>
 
         {/* Right Side: Horizontal Scrollable Timeline */}
-        <div className="flex-1 overflow-auto bg-slate-50/50 relative">
+        <div ref={timelineContainerRef} className="flex-1 overflow-auto bg-slate-50/50 relative">
           <div
             style={{
-              width: `${totalDays * dayWidth + 160}px`,
+              width: `${totalDays * dayWidth}px`,
+              minWidth: '100%',
               minHeight: '100%',
             }}
             className="relative"
           >
-            {/* Timeline Day Header */}
-            <div className="h-12 border-b border-slate-200 bg-slate-100/90 sticky top-0 z-20 flex">
-              {timelineDays.map(day => {
-                const dateStr = addDaysToDate(projectStartDate, day);
-                const isOff = isNonWorkingDay(dateStr, holidays, scheduleMode);
-                const holidayLabel = getHolidayLabel(dateStr, holidays);
-                const isMajor = day % 7 === 0;
-
-                return (
+            {/* Timeline Day Header (2 Tiers: Month/Year Bar + Real Calendar Dates & Weekdays) */}
+            <div className="h-12 border-b border-slate-300 bg-slate-100 sticky top-0 z-20 flex flex-col select-none">
+              {/* Tier 1: Year & Month Bar (h-5 / 20px) */}
+              <div className="h-5 border-b border-slate-300/80 bg-slate-200/90 flex shrink-0 overflow-hidden">
+                {monthSegments.map(seg => (
                   <div
-                    key={day}
-                    style={{ width: `${dayWidth}px` }}
-                    title={`${dateStr} (Day ${day})${holidayLabel ? ` - ${holidayLabel}` : ''}`}
-                    className={`shrink-0 border-r border-slate-200/80 flex flex-col justify-between items-center py-1 text-[10px] font-mono select-none ${
-                      isOff
-                        ? 'bg-amber-100/50 text-amber-900 font-semibold'
-                        : isMajor
-                        ? 'bg-slate-200/60 font-bold text-slate-800'
-                        : 'text-slate-500'
-                    }`}
+                    key={seg.yearMonth}
+                    style={{ width: `${seg.daysCount * dayWidth}px` }}
+                    className="shrink-0 border-r border-slate-300/80 px-2 flex items-center text-[10.5px] font-bold text-slate-700 truncate"
                   >
-                    <span className="text-[8.5px] font-sans truncate w-full text-center text-amber-700/80 leading-none">
-                      {isOff ? (holidayLabel?.slice(0, 2) || '休') : ''}
-                    </span>
-                    <span className="leading-none">{day}</span>
+                    <span className="truncate">{seg.label}</span>
                   </div>
-                );
-              })}
+                ))}
+              </div>
+
+              {/* Tier 2: Calendar Dates & Weekdays (h-7 / 28px - Replaces Day 0, 1, 2... count with real calendar) */}
+              <div className="h-7 flex flex-1">
+                {timelineDays.map(day => {
+                  const dateStr = addDaysToDate(projectStartDate, day);
+                  const isOff = isNonWorkingDay(dateStr, holidays, scheduleMode);
+                  const holidayLabel = getHolidayLabel(dateStr, holidays);
+                  const parts = dateStr.split('-');
+                  const monthNum = parseInt(parts[1] || '1', 10);
+                  const dayNum = parseInt(parts[2] || '1', 10);
+                  const d = parseUTCDate(dateStr);
+                  const dayOfWeek = d ? d.getUTCDay() : 0;
+                  const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
+                  const weekdayName = WEEKDAY_NAMES[dayOfWeek];
+                  const isFirstDayOfMonth = dayNum === 1 || day === 0;
+
+                  // Calendar display format:
+                  let dateLabel: string;
+                  if (dayWidth >= 36) {
+                    dateLabel = `${monthNum}/${dayNum}`;
+                  } else {
+                    dateLabel = isFirstDayOfMonth ? `${monthNum}/${dayNum}` : `${dayNum}`;
+                  }
+
+                  return (
+                    <div
+                      key={day}
+                      style={{ width: `${dayWidth}px` }}
+                      title={`${dateStr} (週${weekdayName}) · 專案第 ${day + 1} 天${
+                        holidayLabel ? ` · ${holidayLabel}` : ''
+                      }`}
+                      className={`shrink-0 border-r border-slate-200 flex flex-col justify-between items-center py-0.5 text-[9.5px] font-mono select-none ${
+                        isOff
+                          ? 'bg-amber-100/60 text-amber-900'
+                          : isFirstDayOfMonth
+                          ? 'bg-blue-50/70 border-l-2 border-l-blue-400 font-semibold text-slate-800'
+                          : 'bg-slate-50/90 text-slate-600'
+                      }`}
+                    >
+                      {/* Weekday indicator / Holiday tag */}
+                      <span
+                        className={`text-[8px] font-sans leading-none truncate w-full text-center ${
+                          isOff ? 'text-amber-800 font-bold' : 'text-slate-400 font-normal'
+                        }`}
+                      >
+                        {isOff && holidayLabel && !holidayLabel.startsWith('週')
+                          ? holidayLabel.slice(0, 2)
+                          : weekdayName}
+                      </span>
+                      {/* Real Calendar Date */}
+                      <span
+                        className={`leading-tight font-bold ${
+                          isFirstDayOfMonth
+                            ? 'text-blue-700'
+                            : isOff
+                            ? 'text-amber-950'
+                            : 'text-slate-800'
+                        }`}
+                      >
+                        {dateLabel}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Vertical grid background lines */}
@@ -866,6 +998,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
               {timelineDays.map(day => {
                 const dateStr = addDaysToDate(projectStartDate, day);
                 const isOff = isNonWorkingDay(dateStr, holidays, scheduleMode);
+                const parts = dateStr.split('-');
+                const isFirstDayOfMonth = parts[2] === '01';
                 return (
                   <div
                     key={day}
@@ -873,8 +1007,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                     className={`shrink-0 border-r ${
                       isOff
                         ? 'bg-slate-200/40 border-slate-200/80'
-                        : day % 7 === 0
-                        ? 'border-slate-300/70 bg-slate-100/20'
+                        : isFirstDayOfMonth
+                        ? 'border-r-slate-300 border-r-2'
                         : 'border-slate-200/40'
                     }`}
                   />
@@ -889,7 +1023,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                   position: 'absolute',
                   top: '48px', // offset below 12 (h-12 = 48px) header
                   left: 0,
-                  width: `${totalDays * dayWidth + 160}px`,
+                  width: `${totalDays * dayWidth}px`,
                   height: `${filteredTasks.length * ROW_HEIGHT}px`,
                   pointerEvents: 'none',
                   zIndex: 10,
