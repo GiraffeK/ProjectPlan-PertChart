@@ -171,6 +171,33 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     };
   }, []);
 
+  // Time scale mode based on dayWidth (日 ➔ 週 ➔ 月)
+  const timeScale = useMemo<'day' | 'week' | 'month'>(() => {
+    if (dayWidth >= 14) return 'day';
+    if (dayWidth >= 4) return 'week';
+    return 'month';
+  }, [dayWidth]);
+
+  const ZOOM_LEVELS = [0.8, 1.2, 1.8, 2.5, 3.5, 5, 7, 9, 12, 16, 20, 24, 30, 38, 48];
+
+  const handleZoomOut = () => {
+    const next = [...ZOOM_LEVELS].reverse().find(lvl => lvl < dayWidth - 0.05);
+    if (next !== undefined) {
+      setDayWidth(next);
+    } else {
+      setDayWidth(0.8);
+    }
+  };
+
+  const handleZoomIn = () => {
+    const next = ZOOM_LEVELS.find(lvl => lvl > dayWidth + 0.05);
+    if (next !== undefined) {
+      setDayWidth(next);
+    } else {
+      setDayWidth(48);
+    }
+  };
+
   const maxCalendarSpan = useMemo(() => {
     let max = criticalPathDuration;
     tasks.forEach(t => {
@@ -188,8 +215,9 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   // Dynamically compute totalDays so the timeline NEVER has blank space when zooming out or on wide screens
   const totalDays = useMemo(() => {
     const daysToFillViewport = Math.ceil((timelineViewportWidth || 1200) / dayWidth);
-    return Math.max(maxCalendarSpan + 15, daysToFillViewport + 15, 45);
-  }, [maxCalendarSpan, timelineViewportWidth, dayWidth]);
+    const buffer = timeScale === 'month' ? 90 : timeScale === 'week' ? 35 : 20;
+    return Math.max(maxCalendarSpan + buffer, daysToFillViewport + buffer, 60);
+  }, [maxCalendarSpan, timelineViewportWidth, dayWidth, timeScale]);
 
   // Generate day tick markers
   const timelineDays = useMemo(() => {
@@ -246,6 +274,114 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     }
 
     return segments;
+  }, [timelineDays, projectStartDate]);
+
+  // Group days into Week segments for 'week' scale
+  const weekSegments = useMemo(() => {
+    if (timelineDays.length === 0) return [];
+    const weeks: Array<{
+      weekIndex: number;
+      label: string;
+      startDay: number;
+      daysCount: number;
+      startDateStr: string;
+      dateRangeLabel: string;
+    }> = [];
+
+    let currentWeekStartDay = 0;
+    let currentWeekStartDateStr = '';
+    let currentWeekDays = 0;
+    let weekIndex = 1;
+
+    timelineDays.forEach((day, idx) => {
+      const dateStr = addDaysToDate(projectStartDate, day);
+      const d = parseUTCDate(dateStr);
+      const dayOfWeek = d ? d.getUTCDay() : 0; // 0 = Sun, 1 = Mon ... 6 = Sat
+
+      if (idx === 0) {
+        currentWeekStartDay = day;
+        currentWeekStartDateStr = dateStr;
+        currentWeekDays = 1;
+      } else if (dayOfWeek === 1 || currentWeekDays === 7) {
+        // Start a new week on Monday (or after 7 days)
+        const parts = currentWeekStartDateStr.split('-');
+        const endDayDateStr = addDaysToDate(projectStartDate, day - 1);
+        const endParts = endDayDateStr.split('-');
+        weeks.push({
+          weekIndex,
+          label: `${parseInt(parts[1], 10)}/${parseInt(parts[2], 10)}`,
+          startDay: currentWeekStartDay,
+          daysCount: currentWeekDays,
+          startDateStr: currentWeekStartDateStr,
+          dateRangeLabel: `${parts[1]}/${parts[2]} ~ ${endParts[1]}/${endParts[2]}`,
+        });
+        weekIndex++;
+        currentWeekStartDay = day;
+        currentWeekStartDateStr = dateStr;
+        currentWeekDays = 1;
+      } else {
+        currentWeekDays++;
+      }
+    });
+
+    if (currentWeekDays > 0) {
+      const parts = currentWeekStartDateStr.split('-');
+      const lastDay = timelineDays[timelineDays.length - 1];
+      const endDayDateStr = addDaysToDate(projectStartDate, lastDay);
+      const endParts = endDayDateStr.split('-');
+      weeks.push({
+        weekIndex,
+        label: `${parseInt(parts[1], 10)}/${parseInt(parts[2], 10)}`,
+        startDay: currentWeekStartDay,
+        daysCount: currentWeekDays,
+        startDateStr: currentWeekStartDateStr,
+        dateRangeLabel: `${parts[1]}/${parts[2]} ~ ${endParts[1]}/${endParts[2]}`,
+      });
+    }
+
+    return weeks;
+  }, [timelineDays, projectStartDate]);
+
+  // Year segments for 'month' scale Top Tier
+  const yearSegments = useMemo(() => {
+    if (timelineDays.length === 0) return [];
+    const years: Array<{
+      year: string;
+      label: string;
+      daysCount: number;
+    }> = [];
+
+    let currentYear = '';
+    let currentCount = 0;
+
+    timelineDays.forEach(day => {
+      const dateStr = addDaysToDate(projectStartDate, day);
+      if (!dateStr) return;
+      const yr = dateStr.split('-')[0];
+      if (yr !== currentYear) {
+        if (currentCount > 0) {
+          years.push({
+            year: currentYear,
+            label: `${currentYear} 年`,
+            daysCount: currentCount,
+          });
+        }
+        currentYear = yr;
+        currentCount = 1;
+      } else {
+        currentCount++;
+      }
+    });
+
+    if (currentCount > 0) {
+      years.push({
+        year: currentYear,
+        label: `${currentYear} 年`,
+        daysCount: currentCount,
+      });
+    }
+
+    return years;
   }, [timelineDays, projectStartDate]);
 
   const ROW_HEIGHT = 44;
@@ -619,19 +755,68 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             <span>{onlyCritical ? '僅顯示關鍵路徑' : '顯示全部任務'}</span>
           </button>
 
-          <div className="flex items-center bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs">
+          {/* Quick Scale Selector: 日 / 週 / 月 */}
+          <div className="flex items-center bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs text-xs">
             <button
-              onClick={() => setDayWidth(w => Math.max(14, w - 4))}
-              title="縮小時間軸"
-              className="p-1 text-slate-500 hover:text-slate-800 rounded"
+              onClick={() => setDayWidth(24)}
+              title="以「日」為單位檢視（適合近程詳細排程）"
+              className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                timeScale === 'day'
+                  ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              日
+            </button>
+            <button
+              onClick={() => setDayWidth(8)}
+              title="以「週」為單位檢視（適合中長期排程）"
+              className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                timeScale === 'week'
+                  ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              週
+            </button>
+            <button
+              onClick={() => setDayWidth(2)}
+              title="以「月」為單位檢視（適合 1~3 年以上專案全貌）"
+              className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                timeScale === 'month'
+                  ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              月
+            </button>
+          </div>
+
+          {/* Zoom stepper with scale label */}
+          <div className="flex items-center bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs text-xs">
+            <button
+              onClick={handleZoomOut}
+              disabled={dayWidth <= 0.8}
+              title="縮小時間軸（縮小時字體太小時自動切換為週或月檢視）"
+              className="p-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 disabled:cursor-not-allowed rounded cursor-pointer"
             >
               <ZoomOut size={16} />
             </button>
-            <span className="text-xs px-2 font-mono text-slate-600">{dayWidth}px/d</span>
+            <span
+              className="text-xs px-2 font-mono text-slate-700 min-w-[76px] text-center font-semibold"
+              title={`目前縮放：${dayWidth}px/日（${timeScale === 'day' ? '日檢視' : timeScale === 'week' ? '週檢視' : '月檢視'}）`}
+            >
+              {timeScale === 'day'
+                ? `${Math.round(dayWidth)}px/日`
+                : timeScale === 'week'
+                ? `${Math.round(dayWidth * 7)}px/週`
+                : `${Math.round(dayWidth * 30)}px/月`}
+            </span>
             <button
-              onClick={() => setDayWidth(w => Math.min(50, w + 4))}
+              onClick={handleZoomIn}
+              disabled={dayWidth >= 48}
               title="放大時間軸"
-              className="p-1 text-slate-500 hover:text-slate-800 rounded"
+              className="p-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 disabled:cursor-not-allowed rounded cursor-pointer"
             >
               <ZoomIn size={16} />
             </button>
@@ -912,108 +1097,179 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             }}
             className="relative"
           >
-            {/* Timeline Day Header (2 Tiers: Month/Year Bar + Real Calendar Dates & Weekdays) */}
+            {/* Timeline Header (2 Tiers: Tier 1 Top Banner + Tier 2 Column Units for Day / Week / Month) */}
             <div className="h-12 border-b border-slate-300 bg-slate-100 sticky top-0 z-20 flex flex-col select-none">
-              {/* Tier 1: Year & Month Bar (h-5 / 20px) */}
+              {/* Tier 1: Year/Month Banner (20px) */}
               <div className="h-5 border-b border-slate-300/80 bg-slate-200/90 flex shrink-0 overflow-hidden">
-                {monthSegments.map(seg => (
-                  <div
-                    key={seg.yearMonth}
-                    style={{ width: `${seg.daysCount * dayWidth}px` }}
-                    className="shrink-0 border-r border-slate-300/80 px-2 flex items-center text-[10.5px] font-bold text-slate-700 truncate"
-                  >
-                    <span className="truncate">{seg.label}</span>
-                  </div>
-                ))}
+                {timeScale === 'month'
+                  ? yearSegments.map(yr => (
+                      <div
+                        key={yr.year}
+                        style={{ width: `${yr.daysCount * dayWidth}px` }}
+                        className="shrink-0 border-r border-slate-300 px-2 flex items-center text-[11px] font-bold text-slate-800 truncate sticky left-0"
+                      >
+                        <span className="truncate">{yr.label}</span>
+                      </div>
+                    ))
+                  : monthSegments.map(seg => (
+                      <div
+                        key={seg.yearMonth}
+                        style={{ width: `${seg.daysCount * dayWidth}px` }}
+                        className="shrink-0 border-r border-slate-300 px-2 flex items-center text-[10.5px] font-bold text-slate-700 truncate sticky left-0"
+                      >
+                        <span className="truncate">{seg.label}</span>
+                      </div>
+                    ))}
               </div>
 
-              {/* Tier 2: Calendar Dates & Weekdays (h-7 / 28px - Replaces Day 0, 1, 2... count with real calendar) */}
-              <div className="h-7 flex flex-1">
-                {timelineDays.map(day => {
-                  const dateStr = addDaysToDate(projectStartDate, day);
-                  const isOff = isNonWorkingDay(dateStr, holidays, scheduleMode);
-                  const holidayLabel = getHolidayLabel(dateStr, holidays);
-                  const parts = dateStr.split('-');
-                  const monthNum = parseInt(parts[1] || '1', 10);
-                  const dayNum = parseInt(parts[2] || '1', 10);
-                  const d = parseUTCDate(dateStr);
-                  const dayOfWeek = d ? d.getUTCDay() : 0;
-                  const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
-                  const weekdayName = WEEKDAY_NAMES[dayOfWeek];
-                  const isFirstDayOfMonth = dayNum === 1 || day === 0;
+              {/* Tier 2: Column Units (28px - Days / Weeks / Months) */}
+              <div className="h-7 flex flex-1 overflow-hidden">
+                {timeScale === 'month' &&
+                  monthSegments.map((seg, idx) => {
+                    const monthNumber = parseInt(seg.yearMonth.split('-')[1], 10);
+                    const qNumber = Math.ceil(monthNumber / 3);
+                    return (
+                      <div
+                        key={seg.yearMonth}
+                        style={{ width: `${seg.daysCount * dayWidth}px` }}
+                        title={`${seg.label} (共 ${seg.daysCount} 天)`}
+                        className={`shrink-0 border-r border-slate-300 flex flex-col justify-between items-center py-0.5 text-slate-700 select-none ${
+                          idx % 2 === 0 ? 'bg-slate-50' : 'bg-slate-100/80'
+                        }`}
+                      >
+                        <span className="text-[7.5px] font-sans leading-none text-slate-400 font-semibold truncate">
+                          Q{qNumber}
+                        </span>
+                        <span className="text-[10px] font-bold font-mono leading-tight text-slate-800 truncate px-0.5">
+                          {monthNumber}月
+                        </span>
+                      </div>
+                    );
+                  })}
 
-                  // Calendar display format:
-                  let dateLabel: string;
-                  if (dayWidth >= 36) {
-                    dateLabel = `${monthNum}/${dayNum}`;
-                  } else {
-                    dateLabel = isFirstDayOfMonth ? `${monthNum}/${dayNum}` : `${dayNum}`;
-                  }
-
-                  return (
+                {timeScale === 'week' &&
+                  weekSegments.map(week => (
                     <div
-                      key={day}
-                      style={{ width: `${dayWidth}px` }}
-                      title={`${dateStr} (週${weekdayName}) · 專案第 ${day + 1} 天${
-                        holidayLabel ? ` · ${holidayLabel}` : ''
-                      }`}
-                      className={`shrink-0 border-r border-slate-200 flex flex-col justify-between items-center py-0.5 text-[9.5px] font-mono select-none ${
-                        isOff
-                          ? 'bg-amber-100/60 text-amber-900'
-                          : isFirstDayOfMonth
-                          ? 'bg-blue-50/70 border-l-2 border-l-blue-400 font-semibold text-slate-800'
-                          : 'bg-slate-50/90 text-slate-600'
-                      }`}
+                      key={week.startDateStr + week.startDay}
+                      style={{ width: `${week.daysCount * dayWidth}px` }}
+                      title={`第 ${week.weekIndex} 週 (${week.dateRangeLabel})`}
+                      className="shrink-0 border-r border-slate-300/90 flex flex-col justify-between items-center py-0.5 text-slate-700 select-none bg-slate-50/90 hover:bg-slate-100 transition-colors"
                     >
-                      {/* Weekday indicator / Holiday tag */}
-                      <span
-                        className={`text-[8px] font-sans leading-none truncate w-full text-center ${
-                          isOff ? 'text-amber-800 font-bold' : 'text-slate-400 font-normal'
-                        }`}
-                      >
-                        {isOff && holidayLabel && !holidayLabel.startsWith('週')
-                          ? holidayLabel.slice(0, 2)
-                          : weekdayName}
+                      <span className="text-[8px] font-sans leading-none text-slate-400 font-medium truncate">
+                        W{week.weekIndex}
                       </span>
-                      {/* Real Calendar Date */}
-                      <span
-                        className={`leading-tight font-bold ${
-                          isFirstDayOfMonth
-                            ? 'text-blue-700'
-                            : isOff
-                            ? 'text-amber-950'
-                            : 'text-slate-800'
-                        }`}
-                      >
-                        {dateLabel}
+                      <span className="text-[9.5px] font-bold font-mono leading-tight text-blue-700 truncate px-0.5">
+                        {week.label}
                       </span>
                     </div>
-                  );
-                })}
+                  ))}
+
+                {timeScale === 'day' &&
+                  timelineDays.map(day => {
+                    const dateStr = addDaysToDate(projectStartDate, day);
+                    const isOff = isNonWorkingDay(dateStr, holidays, scheduleMode);
+                    const holidayLabel = getHolidayLabel(dateStr, holidays);
+                    const parts = dateStr.split('-');
+                    const monthNum = parseInt(parts[1] || '1', 10);
+                    const dayNum = parseInt(parts[2] || '1', 10);
+                    const d = parseUTCDate(dateStr);
+                    const dayOfWeek = d ? d.getUTCDay() : 0;
+                    const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
+                    const weekdayName = WEEKDAY_NAMES[dayOfWeek];
+                    const isFirstDayOfMonth = dayNum === 1 || day === 0;
+
+                    let dateLabel: string;
+                    if (dayWidth >= 36) {
+                      dateLabel = `${monthNum}/${dayNum}`;
+                    } else {
+                      dateLabel = isFirstDayOfMonth ? `${monthNum}/${dayNum}` : `${dayNum}`;
+                    }
+
+                    return (
+                      <div
+                        key={day}
+                        style={{ width: `${dayWidth}px` }}
+                        title={`${dateStr} (週${weekdayName}) · 專案第 ${day + 1} 天${
+                          holidayLabel ? ` · ${holidayLabel}` : ''
+                        }`}
+                        className={`shrink-0 border-r border-slate-200 flex flex-col justify-between items-center py-0.5 text-[9.5px] font-mono select-none ${
+                          isOff
+                            ? 'bg-amber-100/60 text-amber-900'
+                            : isFirstDayOfMonth
+                            ? 'bg-blue-50/70 border-l-2 border-l-blue-400 font-semibold text-slate-800'
+                            : 'bg-slate-50/90 text-slate-600'
+                        }`}
+                      >
+                        <span
+                          className={`text-[8px] font-sans leading-none truncate w-full text-center ${
+                            isOff ? 'text-amber-800 font-bold' : 'text-slate-400 font-normal'
+                          }`}
+                        >
+                          {isOff && holidayLabel && !holidayLabel.startsWith('週')
+                            ? holidayLabel.slice(0, 2)
+                            : weekdayName}
+                        </span>
+                        <span
+                          className={`leading-tight font-bold ${
+                            isFirstDayOfMonth
+                              ? 'text-blue-700'
+                              : isOff
+                              ? 'text-amber-950'
+                              : 'text-slate-800'
+                          }`}
+                        >
+                          {dateLabel}
+                        </span>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
 
             {/* Vertical grid background lines */}
             <div className="absolute top-12 bottom-0 left-0 right-0 pointer-events-none flex">
-              {timelineDays.map(day => {
-                const dateStr = addDaysToDate(projectStartDate, day);
-                const isOff = isNonWorkingDay(dateStr, holidays, scheduleMode);
-                const parts = dateStr.split('-');
-                const isFirstDayOfMonth = parts[2] === '01';
-                return (
+              {timeScale === 'month' &&
+                monthSegments.map((seg, idx) => (
                   <div
-                    key={day}
-                    style={{ width: `${dayWidth}px` }}
+                    key={seg.yearMonth}
+                    style={{ width: `${seg.daysCount * dayWidth}px` }}
                     className={`shrink-0 border-r ${
-                      isOff
-                        ? 'bg-slate-200/40 border-slate-200/80'
-                        : isFirstDayOfMonth
-                        ? 'border-r-slate-300 border-r-2'
-                        : 'border-slate-200/40'
+                      seg.yearMonth.endsWith('-01') || idx === 0
+                        ? 'border-r-slate-400 border-r-2 bg-slate-100/30'
+                        : 'border-r-slate-200/80'
                     }`}
                   />
-                );
-              })}
+                ))}
+
+              {timeScale === 'week' &&
+                weekSegments.map(week => (
+                  <div
+                    key={week.startDateStr + week.startDay}
+                    style={{ width: `${week.daysCount * dayWidth}px` }}
+                    className="shrink-0 border-r border-slate-200/70"
+                  />
+                ))}
+
+              {timeScale === 'day' &&
+                timelineDays.map(day => {
+                  const dateStr = addDaysToDate(projectStartDate, day);
+                  const isOff = isNonWorkingDay(dateStr, holidays, scheduleMode);
+                  const parts = dateStr.split('-');
+                  const isFirstDayOfMonth = parts[2] === '01';
+                  return (
+                    <div
+                      key={day}
+                      style={{ width: `${dayWidth}px` }}
+                      className={`shrink-0 border-r ${
+                        isOff
+                          ? 'bg-slate-200/40 border-slate-200/80'
+                          : isFirstDayOfMonth
+                          ? 'border-r-slate-300 border-r-2'
+                          : 'border-slate-200/40'
+                      }`}
+                    />
+                  );
+                })}
             </div>
 
             {/* SVG Dependency Lines & Arrowheads Layer */}
@@ -1324,6 +1580,16 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                           </div>
                         )}
                       </div>
+                    )}
+
+                    {/* Task name beside bar when bar is too narrow (e.g. Month or Week view) */}
+                    {!task.isSummary && task.duration > 0 && barWidth < 50 && !isDraggingThis && (
+                      <span
+                        style={{ left: `${barLeft + barWidth + 6}px` }}
+                        className="absolute text-[10.5px] font-medium text-slate-700 whitespace-nowrap bg-white/85 px-1 py-0.5 rounded shadow-2xs pointer-events-none z-10 border border-slate-200/60"
+                      >
+                        {task.name}
+                      </span>
                     )}
                   </div>
                 );
