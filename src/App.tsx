@@ -428,6 +428,14 @@ export function App() {
     showToast('已移除自訂假日', 'info');
   };
 
+  const handleChangeStartDate = (newDate: string) => {
+    if (!newDate || !/^\d{4}-\d{2}-\d{2}$/.test(newDate)) return;
+    if (newDate === startDate) return;
+    pushHistory();
+    setStartDate(newDate);
+    showToast(`📅 專案起日已設定為：${newDate}（所有任務排程已同步更新）`, 'info');
+  };
+
   const handleChangeScheduleMode = (mode: ScheduleMode) => {
     if (mode === scheduleMode) return;
     pushHistory();
@@ -1300,7 +1308,7 @@ export function App() {
         onOpenMppGuide={() => setIsMppGuideOpen(true)}
         onOpenHelp={() => setIsHelpOpen(true)}
         startDate={startDate}
-        onChangeStartDate={setStartDate}
+        onChangeStartDate={handleChangeStartDate}
         scheduleMode={scheduleMode}
         onChangeScheduleMode={handleChangeScheduleMode}
         customHolidaysCount={customHolidays.length}

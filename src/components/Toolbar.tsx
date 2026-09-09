@@ -86,6 +86,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   hasCycle,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const startDateInputRef = useRef<HTMLInputElement>(null);
   const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
   const fileMenuRef = useRef<HTMLDivElement>(null);
 
@@ -348,14 +349,37 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div className="h-4 w-px bg-slate-700 mx-0.5 shrink-0" />
 
       {/* 6. Project Start Date */}
-      <div className="flex items-center space-x-1 bg-slate-800/80 px-2 py-1 rounded-lg border border-slate-700 text-xs shrink-0">
-        <Calendar size={13} className="text-slate-400" />
-        <span className="text-slate-400 text-[11px]">專案起日:</span>
+      <div
+        onClick={() => {
+          try {
+            startDateInputRef.current?.showPicker?.();
+          } catch {
+            startDateInputRef.current?.focus();
+          }
+        }}
+        className="flex items-center space-x-1.5 bg-slate-800/80 hover:bg-slate-700/80 px-2.5 py-1 rounded-lg border border-slate-700 hover:border-slate-600 text-xs shrink-0 cursor-pointer transition-colors group"
+        title="點擊設定專案起始日期（所有任務排程與日曆將依此起日自動推算）"
+      >
+        <Calendar size={13} className="text-slate-400 group-hover:text-amber-400 transition-colors shrink-0" />
+        <span className="text-slate-400 text-[11px] select-none shrink-0 font-medium">專案起日:</span>
         <input
+          ref={startDateInputRef}
           type="date"
           value={startDate}
-          onChange={e => onChangeStartDate(e.target.value)}
-          className="bg-transparent text-white font-mono text-xs focus:outline-none cursor-pointer"
+          style={{ colorScheme: 'dark' }}
+          onClick={e => {
+            e.stopPropagation();
+            try {
+              (e.target as HTMLInputElement).showPicker?.();
+            } catch {}
+          }}
+          onChange={e => {
+            const val = e.target.value;
+            if (val && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
+              onChangeStartDate(val);
+            }
+          }}
+          className="bg-transparent text-white font-mono text-xs focus:outline-none cursor-pointer hover:text-amber-200 transition-colors"
         />
       </div>
 
