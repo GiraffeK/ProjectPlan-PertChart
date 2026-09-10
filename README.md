@@ -61,3 +61,90 @@ npm run dev
 npm run build
 ```
 產生的最佳化靜態網頁檔案位於 `dist/` 目錄。
+
+---
+
+## 部署說明
+
+本系統為純前端單頁應用（SPA），可免費託管部署於各大靜態網頁託管平台（如 Firebase Hosting、GitHub Pages 等）。
+
+### 方案一：部署至 Firebase Hosting
+
+#### 1. 前置準備
+- 安裝 Firebase CLI 工具（建議全域安裝，或使用 `npx`）：
+  ```bash
+  npm install -g firebase-tools
+  ```
+- 登入 Firebase 帳號：
+  ```bash
+  firebase login
+  ```
+
+#### 2. 初始化與關聯專案
+至 [Firebase Console](https://console.firebase.google.com/) 建立專案後，在專案根目錄下設定專案 ID：
+
+- **方式 A（指令式關聯）**：
+  ```bash
+  firebase use --add
+  ```
+  *(終端機會列出帳號下的專案列表，選擇目標專案並為其設定別名，例如 `default`)*
+
+- **方式 B（手動建立 `.firebaserc`）**：
+  在專案根目錄建立或確認 `.firebaserc` 檔案內容：
+  ```json
+  {
+    "projects": {
+      "default": "<YOUR_FIREBASE_PROJECT_ID>"
+    }
+  }
+  ```
+
+專案根目錄已包含 `firebase.json`，將 `dist/` 設為公開目錄並設定 SPA 路由導向：
+```json
+{
+  "hosting": {
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
+```
+
+#### 3. 建置並部署
+執行以下指令即可自動建置並上傳至 Firebase Hosting：
+```bash
+npm run build
+firebase deploy --only hosting
+```
+*(若未全域安裝 `firebase-tools`，可使用 `npx firebase-tools deploy --only hosting`)*
+
+部署完成後，即可透過 Firebase 提供的預設網址存取：
+`https://<YOUR_FIREBASE_PROJECT_ID>.web.app`
+
+---
+
+### 方案二：部署至 GitHub Pages
+
+專案已內建 GitHub Actions 自動部署工作流程（位於 `.github/workflows/deploy.yml`）。
+
+#### 啟用步驟：
+1. 將專案程式碼推送到 GitHub 遠端儲存庫：
+   ```bash
+   git remote add origin https://github.com/<YOUR_GITHUB_USERNAME>/<YOUR_REPOSITORY_NAME>.git
+   git branch -M main
+   git push -u origin main
+   ```
+2. 進入 GitHub 儲存庫頁面，點選 **Settings** > **Pages**。
+3. 在 **Build and deployment** 下的 **Source** 選擇 **GitHub Actions**。
+4. 日後只要向 `main` 分支推送程式碼，系統將自動觸發建置並發布到：
+   `https://<YOUR_GITHUB_USERNAME>.github.io/<YOUR_REPOSITORY_NAME>/`
+
