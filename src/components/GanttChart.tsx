@@ -145,6 +145,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
   // Container ref & viewport width tracking to dynamically fill all zoom levels with future calendar dates
   const timelineContainerRef = useRef<HTMLDivElement>(null);
+  const tableBodyRef = useRef<HTMLDivElement>(null);
   const [timelineViewportWidth, setTimelineViewportWidth] = useState<number>(1200);
 
   useEffect(() => {
@@ -168,6 +169,45 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     return () => {
       ro.disconnect();
       window.removeEventListener('resize', updateWidth);
+    };
+  }, []);
+
+  // Synchronize vertical scroll between left task grid table and right timeline
+  useEffect(() => {
+    const tableEl = tableBodyRef.current;
+    const timelineEl = timelineContainerRef.current;
+    if (!tableEl || !timelineEl) return;
+
+    let activeScroller: 'table' | 'timeline' | null = null;
+    let resetTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const handleTableScroll = () => {
+      if (activeScroller === 'timeline') return;
+      activeScroller = 'table';
+      timelineEl.scrollTop = tableEl.scrollTop;
+      if (resetTimer) clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => {
+        activeScroller = null;
+      }, 50);
+    };
+
+    const handleTimelineScroll = () => {
+      if (activeScroller === 'table') return;
+      activeScroller = 'timeline';
+      tableEl.scrollTop = timelineEl.scrollTop;
+      if (resetTimer) clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => {
+        activeScroller = null;
+      }, 50);
+    };
+
+    tableEl.addEventListener('scroll', handleTableScroll, { passive: true });
+    timelineEl.addEventListener('scroll', handleTimelineScroll, { passive: true });
+
+    return () => {
+      if (resetTimer) clearTimeout(resetTimer);
+      tableEl.removeEventListener('scroll', handleTableScroll);
+      timelineEl.removeEventListener('scroll', handleTimelineScroll);
     };
   }, []);
 
@@ -863,7 +903,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           </div>
 
           {/* Table Rows */}
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+          <div ref={tableBodyRef} className="flex-1 overflow-y-auto divide-y divide-slate-100">
             {filteredTasks.map(task => {
               const isCrit = criticalSet.has(task.id);
               const isSubtask = (task.outlineLevel || 1) > 1;
