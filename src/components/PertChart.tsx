@@ -731,11 +731,11 @@ export const PertChart: React.FC<PertChartProps> = ({
                 d={pathData}
                 fill="none"
                 stroke={isCritical ? '#ef4444' : '#94a3b8'}
-                strokeWidth={isCritical ? 3 : 2.5}
+                strokeWidth={isCritical ? 2.4 : 2.0}
                 strokeDasharray="5 3"
                 markerEnd={isCritical ? 'url(#arrow-anchor-critical)' : 'url(#arrow-anchor)'}
                 style={{ pointerEvents: 'stroke' }}
-                className={`transition-all duration-150 ${isCritical ? 'group-hover/anchor-edge:stroke-red-600' : 'group-hover/anchor-edge:stroke-slate-600'} group-hover/anchor-edge:stroke-[3.5px]`}
+                className={`transition-all duration-150 ${isCritical ? 'group-hover/anchor-edge:stroke-red-600' : 'group-hover/anchor-edge:stroke-slate-600'} group-hover/anchor-edge:stroke-[2.8px]`}
               />
             </g>
           );
@@ -788,11 +788,11 @@ export const PertChart: React.FC<PertChartProps> = ({
               d={pathData}
               fill="none"
               stroke={isCritical ? '#dc2626' : '#64748b'}
-              strokeWidth={isCritical ? 3.5 : 1.8}
+              strokeWidth={isCritical ? 2.2 : 1.8}
               strokeDasharray={isCritical ? 'none' : 'none'}
               markerEnd={isCritical ? 'url(#arrow-critical)' : 'url(#arrow-normal)'}
               style={{ pointerEvents: 'stroke' }}
-              className="transition-all duration-150 group-hover/edge:stroke-blue-600 group-hover/edge:stroke-[3.5px]"
+              className="transition-all duration-150 group-hover/edge:stroke-blue-600 group-hover/edge:stroke-[2.8px]"
             />
           </g>
         );
@@ -970,17 +970,17 @@ export const PertChart: React.FC<PertChartProps> = ({
           >
             <path d="M 0 1 L 10 5 L 0 9 z" fill="#64748b" />
           </marker>
-          {/* Critical arrow (Bold Red) */}
+          {/* Critical arrow (Refined Red) */}
           <marker
             id="arrow-critical"
             viewBox="0 0 10 10"
             refX="8"
             refY="5"
-            markerWidth="7"
-            markerHeight="7"
+            markerWidth="6.8"
+            markerHeight="6.8"
             orient="auto-start-reverse"
           >
-            <path d="M 0 0.5 L 10 5 L 0 9.5 z" fill="#dc2626" />
+            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#dc2626" />
           </marker>
           {/* Dragging connection arrow (Vibrant Blue) */}
           <marker
@@ -1000,8 +1000,8 @@ export const PertChart: React.FC<PertChartProps> = ({
             viewBox="0 0 10 10"
             refX="8"
             refY="5"
-            markerWidth="7"
-            markerHeight="7"
+            markerWidth="6.8"
+            markerHeight="6.8"
             orient="auto-start-reverse"
           >
             <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#64748b" />
@@ -1012,8 +1012,8 @@ export const PertChart: React.FC<PertChartProps> = ({
             viewBox="0 0 10 10"
             refX="8"
             refY="5"
-            markerWidth="7"
-            markerHeight="7"
+            markerWidth="6.8"
+            markerHeight="6.8"
             orient="auto-start-reverse"
           >
             <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#ef4444" />
