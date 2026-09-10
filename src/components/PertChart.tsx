@@ -1126,35 +1126,35 @@ export const PertChart: React.FC<PertChartProps> = ({
               }}
               className={`group pointer-events-auto cursor-move p-[5px] select-none ${
                 isMilestone
-                  ? 'rounded-2xl border-2'
+                  ? 'rounded-xl border-[3.5px] border-double'
                   : isSummary
                   ? 'rounded-lg border-2 border-dashed'
                   : 'rounded-lg border'
               } ${
                 draggingTaskId === task.id
-                  ? '!transition-none shadow-2xl z-40 ring-2 ring-blue-500 scale-[1.01]'
-                  : 'transition-[border-color,box-shadow,background-color,transform] duration-150'
+                  ? '!transition-none shadow-2xl z-40 ring-2 ring-indigo-500 scale-[1.01]'
+                  : 'transition-[border-color,box-shadow,background-color] duration-150'
               } ${
                 isSelected
-                  ? '!ring-4 !ring-blue-600 !border-blue-600 scale-105 shadow-2xl z-30'
+                  ? '!ring-2 !ring-indigo-500/40 !border-indigo-600 shadow-[0_0_0_1px_rgba(79,70,229,0.2),0_10px_25px_-5px_rgba(79,70,229,0.35)] z-30'
                   : isSubtaskOfSelected
-                  ? '!ring-3 !ring-sky-400 !border-sky-500 !bg-sky-50/70 shadow-xl scale-[1.02] z-20'
+                  ? '!border-indigo-300 !bg-indigo-50/80 shadow-md z-20'
                   : ''
               } ${
                 isMilestone
                   ? isCritical
-                    ? 'border-red-600 bg-gradient-to-br from-amber-100 via-rose-50 to-red-100 shadow-md shadow-red-300/50 ring-2 ring-red-400'
-                    : 'border-amber-500 bg-gradient-to-br from-amber-100 via-amber-50 to-orange-100 shadow-md shadow-amber-200/50 ring-2 ring-amber-400'
+                    ? 'border-rose-500 bg-gradient-to-br from-amber-50 via-rose-50 to-red-50 shadow-sm'
+                    : 'border-amber-500 bg-gradient-to-br from-amber-100/90 via-amber-50 to-orange-50/90 shadow-sm'
                   : isSummary
                   ? isCritical
-                    ? 'border-red-600 bg-red-50/90 shadow-md ring-2 ring-red-400'
-                    : 'border-slate-700 bg-slate-100/90 shadow-md ring-1 ring-slate-400'
+                    ? 'border-red-600 bg-red-50/90 shadow-sm'
+                    : 'border-slate-700 bg-slate-100/90 shadow-sm'
                   : isCritical
-                  ? 'border-red-600 bg-slate-200/90 shadow-md shadow-red-200/60'
-                  : 'border-slate-400 bg-slate-200/90 shadow-xs hover:border-blue-500 hover:shadow-md'
+                  ? 'border-red-500 bg-slate-200/90 shadow-sm shadow-red-200/60'
+                  : 'border-slate-400 bg-slate-200/90 shadow-2xs hover:border-slate-500 hover:shadow-sm'
               } ${
                 isTargetHover
-                  ? 'ring-4 ring-blue-500 scale-105 shadow-2xl bg-blue-100/90'
+                  ? '!ring-2 !ring-blue-500 shadow-xl bg-blue-100/90'
                   : ''
               } ${
                 isSourceDragging
@@ -1202,7 +1202,11 @@ export const PertChart: React.FC<PertChartProps> = ({
                 }}
                 className={`w-full h-full cursor-pointer bg-white overflow-hidden border ${
                   isMilestone
-                    ? 'rounded-xl border-amber-300'
+                    ? isCritical
+                      ? 'rounded-lg border-rose-200/80'
+                      : 'rounded-lg border-amber-200/80'
+                    : isSubtaskOfSelected
+                    ? 'rounded-md border-indigo-200/80 bg-indigo-50/20'
                     : 'rounded-md border-slate-300'
                 }`}
               >
@@ -1210,13 +1214,15 @@ export const PertChart: React.FC<PertChartProps> = ({
                   <div className="flex flex-col h-full divide-y divide-slate-300">
                     {/* Task Name Box */}
                     <div
-                      className={`px-2.5 py-2 text-xs font-semibold leading-tight flex items-center justify-between min-h-[46px] hover:bg-slate-50 ${
+                      className={`px-2.5 py-2 text-xs font-semibold leading-tight flex items-center justify-between min-h-[46px] hover:bg-slate-50/80 ${
                         isMilestone
                           ? isCritical
-                            ? 'bg-red-50 text-red-950 font-bold'
-                            : 'bg-amber-50/90 text-amber-950 font-bold'
+                            ? 'bg-rose-50/80 text-rose-950 font-bold'
+                            : 'bg-amber-50/80 text-amber-950 font-bold'
                           : isCritical
                           ? 'bg-red-50/40 text-red-950 font-bold'
+                          : isSubtaskOfSelected
+                          ? 'bg-indigo-50/30 text-slate-900'
                           : 'text-slate-800'
                       }`}
                     >
@@ -1247,10 +1253,12 @@ export const PertChart: React.FC<PertChartProps> = ({
                       className={`flex items-center text-[11px] font-medium divide-x h-[32px] ${
                         isMilestone
                           ? isCritical
-                            ? 'bg-red-100/80 text-red-900 divide-red-200 font-bold'
+                            ? 'bg-rose-100/80 text-rose-900 divide-rose-200 font-bold'
                             : 'bg-amber-100/80 text-amber-900 divide-amber-200 font-bold'
                           : isCritical
                           ? 'bg-red-50/80 text-red-900 divide-slate-300 font-bold'
+                          : isSubtaskOfSelected
+                          ? 'bg-indigo-50/60 text-slate-700 divide-indigo-200/80'
                           : 'bg-slate-50/70 text-slate-600 divide-slate-300'
                       }`}
                     >
