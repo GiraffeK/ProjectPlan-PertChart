@@ -729,12 +729,12 @@ export const PertChart: React.FC<PertChartProps> = ({
               <path
                 d={pathData}
                 fill="none"
-                stroke="#6366f1"
+                stroke="#94a3b8"
                 strokeWidth="2.5"
                 strokeDasharray="5 3"
                 markerEnd="url(#arrow-anchor)"
                 style={{ pointerEvents: 'stroke' }}
-                className="transition-all duration-150 group-hover/anchor-edge:stroke-indigo-800 group-hover/anchor-edge:stroke-[3.5px]"
+                className="transition-all duration-150 group-hover/anchor-edge:stroke-slate-600 group-hover/anchor-edge:stroke-[3.5px]"
               />
             </g>
           );
@@ -937,7 +937,7 @@ export const PertChart: React.FC<PertChartProps> = ({
           >
             <path d="M 0 1 L 10 5 L 0 9 z" fill="#2563eb" />
           </marker>
-          {/* Reverse Anchor arrow (Indigo dashed) */}
+          {/* Reverse Anchor arrow (Slate dashed) */}
           <marker
             id="arrow-anchor"
             viewBox="0 0 10 10"
@@ -947,7 +947,7 @@ export const PertChart: React.FC<PertChartProps> = ({
             markerHeight="7"
             orient="auto-start-reverse"
           >
-            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#6366f1" />
+            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#64748b" />
           </marker>
         </defs>
 
@@ -1109,8 +1109,8 @@ export const PertChart: React.FC<PertChartProps> = ({
                   className="absolute -top-3.5 right-1.5 z-15 pointer-events-none"
                   title={`⚓ 反向錨定至「${taskMap.get(task.anchor.targetTaskId)?.name || task.anchor.targetTaskId}」：提前 ${task.anchor.leadDays} ${task.anchor.useWorkingDays !== false ? '個工作天' : '天'} 完成\n當目標任務順延時，此任務將自動同步推遲`}
                 >
-                  <span className="inline-flex items-center space-x-1 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-600 text-white border border-indigo-400 shadow-md animate-in zoom-in-90 duration-150">
-                    <Anchor size={11} className="shrink-0" />
+                  <span className="inline-flex items-center space-x-1 text-[9.5px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-300 shadow-2xs animate-in zoom-in-90 duration-150">
+                    <Anchor size={11} className="shrink-0 text-slate-500" />
                     <span>{taskMap.get(task.anchor.targetTaskId)?.name || task.anchor.targetTaskId} -{task.anchor.leadDays}d</span>
                   </span>
                 </div>
