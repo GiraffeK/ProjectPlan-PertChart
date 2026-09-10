@@ -367,7 +367,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                   <span className="text-xs font-bold text-indigo-950 flex items-center space-x-1.5">
                     <Anchor size={15} className="text-indigo-600 shrink-0" />
                     <span>
-                      以關聯後置任務
+                      以後置任務
                       {successorTasks.length > 1 ? (
                         <select
                           value={primarySuccessor.id}
@@ -384,7 +384,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                       ) : (
                         `「[${primarySuccessor.id}] ${primarySuccessor.name}」`
                       )}
-                      的起始日往前倒推
+                      的起始日倒推完成日
                     </span>
                   </span>
                 </label>
