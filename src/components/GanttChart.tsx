@@ -487,18 +487,61 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         const isCriticalEdge = criticalSet.has(predId) && criticalSet.has(task.id) &&
           (task.earlyStart ?? 0) === ((predTask.earlyStart ?? 0) + predTask.duration);
 
-        // Path calculation (Orthogonal step or smooth bezier)
+        // Path calculation: Scheme A - MS Project standard compact orthogonal (Manhattan) routing with rounded corners
         let pathD = '';
-        if (toX >= fromX + 16) {
-          // Normal case: Successor starts after predecessor finish
-          const midX = fromX + (toX - fromX) / 2;
-          pathD = `M ${fromX} ${fromY} C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`;
+        const dirY = toY > fromY ? 1 : toY < fromY ? -1 : 0;
+
+        if (dirY === 0) {
+          // Same row
+          if (toX >= fromX + 12) {
+            pathD = `M ${fromX} ${fromY} L ${toX} ${toY}`;
+          } else {
+            // Overlapping or reverse on same row: detour below into row gap
+            const stubX = 10;
+            const xRight = fromX + stubX;
+            const xLeft = toX - stubX;
+            const yGap = fromY + ROW_HEIGHT / 2;
+            const R = Math.max(1, Math.min(3, Math.floor((xRight - xLeft) / 2)));
+            pathD = `M ${fromX} ${fromY} ` +
+              `L ${xRight - R} ${fromY} ` +
+              `Q ${xRight} ${fromY}, ${xRight} ${fromY + R} ` +
+              `L ${xRight} ${yGap - R} ` +
+              `Q ${xRight} ${yGap}, ${xRight - R} ${yGap} ` +
+              `L ${xLeft + R} ${yGap} ` +
+              `Q ${xLeft} ${yGap}, ${xLeft} ${yGap - R} ` +
+              `L ${xLeft} ${toY + R} ` +
+              `Q ${xLeft} ${toY}, ${xLeft + R} ${toY} ` +
+              `L ${toX} ${toY}`;
+          }
+        } else if (toX >= fromX + 20) {
+          // Standard forward step between different rows
+          const midX = Math.round(fromX + (toX - fromX) / 2);
+          const R = Math.max(1, Math.min(4, Math.abs(midX - fromX) / 2, Math.abs(toX - midX) / 2, Math.abs(toY - fromY) / 2));
+          pathD = `M ${fromX} ${fromY} ` +
+            `L ${midX - R} ${fromY} ` +
+            `Q ${midX} ${fromY}, ${midX} ${fromY + dirY * R} ` +
+            `L ${midX} ${toY - dirY * R} ` +
+            `Q ${midX} ${toY}, ${midX + R} ${toY} ` +
+            `L ${toX} ${toY}`;
         } else {
-          // Overlap or reverse: loop around
-          const offsetRight = fromX + 12;
-          const offsetLeft = toX - 12;
-          const midY = fromY + (toY - fromY) / 2;
-          pathD = `M ${fromX} ${fromY} L ${offsetRight} ${fromY} C ${offsetRight + 12} ${fromY}, ${offsetRight + 12} ${midY}, ${offsetRight} ${midY} L ${offsetLeft} ${midY} C ${offsetLeft - 12} ${midY}, ${offsetLeft - 12} ${toY}, ${offsetLeft} ${toY} L ${toX} ${toY}`;
+          // Same-day boundary (toX === fromX), adjacent, or reverse step across rows (e.g. T7 -> T5, T6 -> T3)
+          // Compact MS Project Manhattan routing: exit right 10px, step into row gap, transit left to target left, step vertically to row, enter target cleanly
+          const stubX = 10;
+          const xRight = fromX + stubX;
+          const xLeft = toX - stubX;
+          const yGap = fromY + dirY * (ROW_HEIGHT / 2);
+          const R = Math.max(1, Math.min(3, Math.floor((xRight - xLeft) / 2)));
+
+          pathD = `M ${fromX} ${fromY} ` +
+            `L ${xRight - R} ${fromY} ` +
+            `Q ${xRight} ${fromY}, ${xRight} ${fromY + dirY * R} ` +
+            `L ${xRight} ${yGap - dirY * R} ` +
+            `Q ${xRight} ${yGap}, ${xRight - R} ${yGap} ` +
+            `L ${xLeft + R} ${yGap} ` +
+            `Q ${xLeft} ${yGap}, ${xLeft} ${yGap + dirY * R} ` +
+            `L ${xLeft} ${toY - dirY * R} ` +
+            `Q ${xLeft} ${toY}, ${xLeft + R} ${toY} ` +
+            `L ${toX} ${toY}`;
         }
 
         arrows.push({
