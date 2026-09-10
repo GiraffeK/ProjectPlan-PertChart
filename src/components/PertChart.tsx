@@ -641,30 +641,127 @@ export const PertChart: React.FC<PertChartProps> = ({
     setTransform({ x: 80, y: 80, scale: 0.85 });
   };
 
-  // Render edges / arrows
+  // Adaptive edge path calculation for any relative angle (horizontal, vertical, diagonal)
+  const calculateEdgePath = (sourcePos: NodePosition, targetPos: NodePosition): string => {
+    // Check if target is sufficiently to the right of source's right edge
+    const isTargetToRight = targetPos.x >= sourcePos.x + sourcePos.width - 25;
+
+    if (isTargetToRight) {
+      // Standard horizontal flow: Right of source -> Left of target
+      const startX = sourcePos.x + sourcePos.width;
+      const startY = sourcePos.y + sourcePos.height / 2;
+      const endX = targetPos.x;
+      const endY = targetPos.y + targetPos.height / 2;
+
+      const dx = Math.max(0, endX - startX);
+      const cOffset = Math.min(Math.max(dx * 0.5, 25), 140);
+      return `M ${startX} ${startY} C ${startX + cOffset} ${startY}, ${endX - cOffset} ${endY}, ${endX} ${endY}`;
+    }
+
+    // Target is stacked vertically (above or below) or placed to the left
+    const isTargetAbove = (targetPos.y + targetPos.height / 2) < (sourcePos.y + sourcePos.height / 2);
+
+    if (isTargetAbove) {
+      // Exit Top center of source -> Smoothly curve into Left of target
+      const startX = sourcePos.x + sourcePos.width / 2;
+      const startY = sourcePos.y;
+      const endX = targetPos.x;
+      const endY = targetPos.y + targetPos.height / 2;
+
+      const vDist = Math.max(25, startY - endY);
+      const hDist = Math.max(30, Math.abs(startX - endX) * 0.45);
+      const cp1Y = startY - Math.min(vDist * 0.5, 80);
+      const cp2X = endX - hDist;
+      return `M ${startX} ${startY} C ${startX} ${cp1Y}, ${cp2X} ${endY}, ${endX} ${endY}`;
+    } else {
+      // Exit Bottom center of source -> Smoothly curve into Left of target
+      const startX = sourcePos.x + sourcePos.width / 2;
+      const startY = sourcePos.y + sourcePos.height;
+      const endX = targetPos.x;
+      const endY = targetPos.y + targetPos.height / 2;
+
+      const vDist = Math.max(25, endY - startY);
+      const hDist = Math.max(30, Math.abs(startX - endX) * 0.45);
+      const cp1Y = startY + Math.min(vDist * 0.5, 80);
+      const cp2X = endX - hDist;
+      return `M ${startX} ${startY} C ${startX} ${cp1Y}, ${cp2X} ${endY}, ${endX} ${endY}`;
+    }
+  };
+
+  // Render edges / arrows (with deduplication & adaptive routing)
   const renderEdges = () => {
     const edges: React.ReactNode[] = [];
+    const renderedEdgePairs = new Set<string>();
 
+    // 1. First Pass: Reverse Anchor connection lines
+    tasks.forEach(task => {
+      if (task.anchor && task.anchor.enabled && task.anchor.targetTaskId) {
+        const sourcePos = positions.get(task.id);
+        const targetPos = positions.get(task.anchor.targetTaskId);
+        if (sourcePos && targetPos) {
+          const edgePairKey = `${task.id}->${task.anchor.targetTaskId}`;
+          renderedEdgePairs.add(edgePairKey);
+
+          const isCritical = criticalEdgeSet.has(edgePairKey);
+          const pathData = calculateEdgePath(sourcePos, targetPos);
+          const anchorEdgeKey = `anchor-${task.id}-${task.anchor.targetTaskId}`;
+
+          edges.push(
+            <g
+              key={anchorEdgeKey}
+              className="group/anchor-edge cursor-pointer"
+              onDoubleClick={e => {
+                e.stopPropagation();
+                setDeleteEdgeModal({ fromId: task.id, toId: task.anchor!.targetTaskId });
+              }}
+            >
+              {/* Wider transparent stroke for easier hover / click / double-click */}
+              <path
+                d={pathData}
+                fill="none"
+                stroke="transparent"
+                strokeWidth="20"
+                style={{ pointerEvents: 'stroke' }}
+                className="cursor-pointer"
+              >
+                <title>{`⚓ 反向錨定關聯：[${task.id}] 鎖定於「${taskMap.get(task.anchor.targetTaskId)?.name || task.anchor.targetTaskId}」開始前 ${task.anchor.leadDays} ${task.anchor.useWorkingDays !== false ? '個工作天' : '天'}\n👉 雙擊 (Double Click) 可刪除此關聯連線`}</title>
+              </path>
+              {/* Visible Anchor Line */}
+              <path
+                d={pathData}
+                fill="none"
+                stroke={isCritical ? '#ef4444' : '#94a3b8'}
+                strokeWidth={isCritical ? 3 : 2.5}
+                strokeDasharray="5 3"
+                markerEnd={isCritical ? 'url(#arrow-anchor-critical)' : 'url(#arrow-anchor)'}
+                style={{ pointerEvents: 'stroke' }}
+                className={`transition-all duration-150 ${isCritical ? 'group-hover/anchor-edge:stroke-red-600' : 'group-hover/anchor-edge:stroke-slate-600'} group-hover/anchor-edge:stroke-[3.5px]`}
+              />
+            </g>
+          );
+        }
+      }
+    });
+
+    // 2. Second Pass: Standard Predecessor edges (skipping any that are already rendered as reverse anchor)
     tasks.forEach(task => {
       const targetPos = positions.get(task.id);
       if (!targetPos) return;
 
       task.predecessors.forEach(predId => {
+        const edgePairKey = `${predId}->${task.id}`;
+        if (renderedEdgePairs.has(edgePairKey)) {
+          // Already rendered as reverse anchor edge! Prevent duplicate line & ghosting arrow.
+          return;
+        }
+        renderedEdgePairs.add(edgePairKey);
+
         const sourcePos = positions.get(predId);
         if (!sourcePos) return;
 
-        const isCritical = criticalEdgeSet.has(`${predId}->${task.id}`);
+        const isCritical = criticalEdgeSet.has(edgePairKey);
         const edgeKey = `${predId}-${task.id}`;
-
-        // Connect right side of source to left side of target
-        const startX = sourcePos.x + sourcePos.width;
-        const startY = sourcePos.y + sourcePos.height / 2;
-        const endX = targetPos.x;
-        const endY = targetPos.y + targetPos.height / 2;
-
-        // Smooth cubic bezier or stepped orthogonal curve
-        const dx = Math.max(40, (endX - startX) * 0.5);
-        const pathData = `M ${startX} ${startY} C ${startX + dx} ${startY}, ${endX - dx} ${endY}, ${endX} ${endY}`;
+        const pathData = calculateEdgePath(sourcePos, targetPos);
 
         edges.push(
           <g
@@ -700,46 +797,6 @@ export const PertChart: React.FC<PertChartProps> = ({
           </g>
         );
       });
-
-      // Render Reverse Anchor connection line (from anchored task to target task)
-      if (task.anchor && task.anchor.enabled && task.anchor.targetTaskId) {
-        const targetPos = positions.get(task.anchor.targetTaskId);
-        const sourcePos = positions.get(task.id);
-        if (sourcePos && targetPos) {
-          const startX = sourcePos.x + sourcePos.width;
-          const startY = sourcePos.y + sourcePos.height / 2;
-          const endX = targetPos.x;
-          const endY = targetPos.y + targetPos.height / 2;
-          const dx = Math.max(40, (endX - startX) * 0.5);
-          const pathData = `M ${startX} ${startY} C ${startX + dx} ${startY}, ${endX - dx} ${endY}, ${endX} ${endY}`;
-          const anchorEdgeKey = `anchor-${task.id}-${task.anchor.targetTaskId}`;
-
-          edges.push(
-            <g key={anchorEdgeKey} className="group/anchor-edge">
-              <path
-                d={pathData}
-                fill="none"
-                stroke="transparent"
-                strokeWidth="20"
-                style={{ pointerEvents: 'stroke' }}
-                className="cursor-pointer"
-              >
-                <title>{`⚓ 反向錨定關聯：[${task.id}] 鎖定於「${taskMap.get(task.anchor.targetTaskId)?.name || task.anchor.targetTaskId}」開始前 ${task.anchor.leadDays} ${task.anchor.useWorkingDays !== false ? '個工作天' : '天'}`}</title>
-              </path>
-              <path
-                d={pathData}
-                fill="none"
-                stroke="#94a3b8"
-                strokeWidth="2.5"
-                strokeDasharray="5 3"
-                markerEnd="url(#arrow-anchor)"
-                style={{ pointerEvents: 'stroke' }}
-                className="transition-all duration-150 group-hover/anchor-edge:stroke-slate-600 group-hover/anchor-edge:stroke-[3.5px]"
-              />
-            </g>
-          );
-        }
-      }
     });
 
     return edges;
@@ -949,6 +1006,18 @@ export const PertChart: React.FC<PertChartProps> = ({
           >
             <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#64748b" />
           </marker>
+          {/* Reverse Anchor arrow (Critical Red dashed) */}
+          <marker
+            id="arrow-anchor-critical"
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="7"
+            markerHeight="7"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#ef4444" />
+          </marker>
         </defs>
 
         {renderEdges()}
@@ -961,8 +1030,11 @@ export const PertChart: React.FC<PertChartProps> = ({
           const startY = sourcePos.y + sourcePos.height / 2;
           const endX = connectionDrag.toX;
           const endY = connectionDrag.toY;
-          const dx = Math.max(30, Math.abs(endX - startX) * 0.4);
-          const pathData = `M ${startX} ${startY} C ${startX + dx} ${startY}, ${endX - dx} ${endY}, ${endX} ${endY}`;
+          const dx = endX - startX;
+          const cOffset = dx >= 0 ? Math.min(Math.max(dx * 0.5, 25), 140) : Math.max(30, Math.abs(endY - startY) * 0.3);
+          const pathData = dx >= 0
+            ? `M ${startX} ${startY} C ${startX + cOffset} ${startY}, ${endX - cOffset} ${endY}, ${endX} ${endY}`
+            : `M ${startX} ${startY} C ${startX + 35} ${startY}, ${endX - 35} ${endY}, ${endX} ${endY}`;
           return (
             <g>
               <path
