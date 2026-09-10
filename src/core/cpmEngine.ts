@@ -408,6 +408,10 @@ export function calculateCPM(
         for (const pId of preds) {
           const p = taskMap.get(pId);
           if (p) {
+            // If predecessor is anchored to this task, it does not push this task's ES forward
+            if (p.anchor && p.anchor.enabled && p.anchor.targetTaskId === task.id) {
+              continue;
+            }
             es = Math.max(es, p.earlyFinish ?? 0);
           }
         }
