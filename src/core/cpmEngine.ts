@@ -1,5 +1,5 @@
 import type { Task, ScheduleMode, Holiday } from './types';
-import { calculateTaskDates, subtractWorkingDays, countWorkingDaysBetween } from './calendarEngine';
+import { calculateTaskDates, subtractWorkingDays, countWorkingDaysBetween, findNextWorkingDay } from './calendarEngine';
 
 export interface CPMCalculationResult {
   tasks: Task[];
@@ -556,11 +556,13 @@ export function calculateCPM(
 
   // Second Pass for Reverse-Anchored Tasks (e.g. SMT 齊料日)
   // Anchored tasks derive their finish and start dates backwards from target task's start date
+  const projFirstWorkDay = findNextWorkingDay(projectStartDate, customHolidays, scheduleMode);
+
   for (const task of tasks) {
-    if (task.anchor && task.anchor.enabled && task.anchor.targetTaskId && task.anchor.leadDays > 0) {
+    if (task.anchor && task.anchor.enabled && task.anchor.targetTaskId && (task.anchor.leadDays ?? 0) >= 0) {
       const target = taskMap.get(task.anchor.targetTaskId);
       if (target && target.startDate) {
-        const leadDays = task.anchor.leadDays;
+        const leadDays = task.anchor.leadDays || 0;
         const useWorkingDays = task.anchor.useWorkingDays !== false;
 
         // Finish date of anchored task is target.startDate minus leadDays
@@ -583,7 +585,7 @@ export function calculateCPM(
         task.startDate = startDate;
 
         // Sync earlyStart and earlyFinish offsets relative to projectStartDate
-        const esWorkingDays = countWorkingDaysBetween(projectStartDate, startDate, customHolidays, scheduleMode);
+        const esWorkingDays = countWorkingDaysBetween(projFirstWorkDay, startDate, customHolidays, scheduleMode);
         task.earlyStart = Math.max(0, esWorkingDays);
         task.earlyFinish = task.duration === 0 ? task.earlyStart : roundDays(task.earlyStart + task.duration);
         task.lateStart = task.earlyStart;

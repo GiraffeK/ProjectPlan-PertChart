@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
-import type { Task } from '../core/types';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import type { Task, ScheduleMode, Holiday } from '../core/types';
 import { formatDays, getParentBadgeLabel } from '../core/cpmEngine';
+import { subtractWorkingDays } from '../core/calendarEngine';
 import { X, Trash2, Check, Anchor } from 'lucide-react';
 
 interface TaskModalProps {
@@ -11,6 +12,8 @@ interface TaskModalProps {
   initialTask?: Task | null;
   existingTasks: Task[];
   defaultPredecessors?: string[];
+  scheduleMode?: ScheduleMode;
+  customHolidays?: (Holiday | string)[];
 }
 
 export const TaskModal: React.FC<TaskModalProps> = ({
@@ -21,6 +24,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   initialTask,
   existingTasks,
   defaultPredecessors,
+  scheduleMode = 'working',
+  customHolidays = [],
 }) => {
   const [name, setName] = useState('');
   const [duration, setDuration] = useState(1);
@@ -33,12 +38,42 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [anchorEnabled, setAnchorEnabled] = useState(false);
   const [anchorLeadDays, setAnchorLeadDays] = useState(7);
   const [anchorUseWorkingDays, setAnchorUseWorkingDays] = useState(true);
+  const [anchorTargetTaskId, setAnchorTargetTaskId] = useState<string>('');
 
   // Automatically find all successor tasks that depend on this task (tasks that have this task in their predecessors)
-  const successorTasks = initialTask
-    ? existingTasks.filter(t => (t.predecessors || []).includes(initialTask.id))
-    : [];
-  const primarySuccessor = successorTasks.length > 0 ? successorTasks[0] : null;
+  const successorTasks = useMemo(() => {
+    if (!initialTask) return [];
+    return existingTasks.filter(t => (t.predecessors || []).includes(initialTask.id));
+  }, [existingTasks, initialTask]);
+
+  const primarySuccessor = useMemo(() => {
+    return successorTasks.find(t => t.id === anchorTargetTaskId) || successorTasks[0] || null;
+  }, [successorTasks, anchorTargetTaskId]);
+
+  // Dynamic preview of reverse anchor finish date and start date
+  const previewFinishDate = useMemo(() => {
+    if (!anchorEnabled || !primarySuccessor?.startDate) return null;
+    const days = Math.max(0, Number(anchorLeadDays) || 0);
+    return subtractWorkingDays(
+      primarySuccessor.startDate,
+      days,
+      customHolidays,
+      anchorUseWorkingDays ? scheduleMode : 'calendar'
+    );
+  }, [anchorEnabled, primarySuccessor?.startDate, anchorLeadDays, customHolidays, anchorUseWorkingDays, scheduleMode]);
+
+  const previewStartDate = useMemo(() => {
+    if (!previewFinishDate) return null;
+    const dur = Math.max(0, Number(duration) || 0);
+    if (dur <= 1) return previewFinishDate;
+    const additionalDays = Math.max(0, Math.round(dur) - 1);
+    return subtractWorkingDays(
+      previewFinishDate,
+      additionalDays,
+      customHolidays,
+      scheduleMode
+    );
+  }, [previewFinishDate, duration, customHolidays, scheduleMode]);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,12 +87,14 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       // Initialize anchor state
       if (initialTask.anchor && initialTask.anchor.enabled) {
         setAnchorEnabled(true);
-        setAnchorLeadDays(initialTask.anchor.leadDays || 7);
+        setAnchorLeadDays(initialTask.anchor.leadDays ?? 7);
         setAnchorUseWorkingDays(initialTask.anchor.useWorkingDays !== false);
+        setAnchorTargetTaskId(initialTask.anchor.targetTaskId || (successorTasks[0]?.id ?? ''));
       } else {
         setAnchorEnabled(false);
         setAnchorLeadDays(7);
         setAnchorUseWorkingDays(true);
+        setAnchorTargetTaskId(successorTasks[0]?.id ?? '');
       }
 
       let initialPreds = initialTask.predecessors || [];
@@ -328,14 +365,31 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                     className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
                   />
                   <span className="text-xs font-bold text-indigo-950 flex items-center space-x-1.5">
-                    <Anchor size={15} className="text-indigo-600" />
+                    <Anchor size={15} className="text-indigo-600 shrink-0" />
                     <span>
-                      以關聯後置任務「[{primarySuccessor.id}] {primarySuccessor.name}」的起始日往前倒推
+                      以關聯後置任務
+                      {successorTasks.length > 1 ? (
+                        <select
+                          value={primarySuccessor.id}
+                          onChange={e => setAnchorTargetTaskId(e.target.value)}
+                          className="mx-1 px-1.5 py-0.5 bg-white border border-indigo-300 rounded font-semibold text-xs text-indigo-950 focus:outline-none"
+                          onClick={e => e.stopPropagation()}
+                        >
+                          {successorTasks.map(s => (
+                            <option key={s.id} value={s.id}>
+                              [{s.id}] {s.name} ({s.startDate || '未排程'})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        `「[${primarySuccessor.id}] ${primarySuccessor.name}」`
+                      )}
+                      的起始日往前倒推
                     </span>
                   </span>
                 </label>
                 {anchorEnabled && (
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200 shrink-0">
                     倒推排程中
                   </span>
                 )}
@@ -366,11 +420,27 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                     </select>
                   </div>
 
-                  {initialTask?.startDate && (
-                    <div className="text-[11px] font-mono text-indigo-700 bg-white px-2.5 py-1 rounded-md border border-indigo-200 font-semibold shadow-2xs">
-                      📅 倒推完成日：{initialTask.startDate}
-                    </div>
-                  )}
+                  <div className="flex items-center space-x-2">
+                    {previewFinishDate ? (
+                      <div className="text-[11px] font-mono text-indigo-700 bg-white px-2.5 py-1 rounded-md border border-indigo-200 font-semibold shadow-2xs flex items-center space-x-1">
+                        <span>📅 倒推完成日：</span>
+                        <span className="font-bold text-indigo-950 bg-indigo-50 px-1.5 py-0.5 rounded">{previewFinishDate}</span>
+                        {previewStartDate && previewStartDate !== previewFinishDate && (
+                          <span className="text-slate-500 font-normal">（起始日：{previewStartDate}）</span>
+                        )}
+                      </div>
+                    ) : primarySuccessor?.startDate ? (
+                      <div className="text-[11px] font-mono text-slate-500 bg-white px-2 py-1 rounded-md border border-slate-200">
+                        後置任務起始日：{primarySuccessor.startDate}
+                      </div>
+                    ) : (
+                      initialTask?.startDate && (
+                        <div className="text-[11px] font-mono text-slate-500 bg-white px-2 py-1 rounded-md border border-slate-200">
+                          原排程日：{initialTask.startDate}
+                        </div>
+                      )
+                    )}
+                  </div>
                 </div>
               )}
             </div>

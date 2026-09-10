@@ -687,6 +687,7 @@ export function App() {
               duration: taskData.duration ?? t.duration,
               category: taskData.category,
               predecessors: newPreds,
+              anchor: taskData.anchor,
               summaryLabel:
                 taskData.summaryLabel !== undefined
                   ? taskData.summaryLabel
@@ -745,6 +746,7 @@ export function App() {
         outlineLevel: outlineLevel || 1,
         parentId,
         predecessors,
+        anchor: taskData.anchor,
         x: pendingTaskPos?.x,
         y: pendingTaskPos?.y,
       };
@@ -1495,7 +1497,9 @@ export function App() {
         onSave={handleSaveTask}
         onDelete={handleDeleteTask}
         initialTask={editingTask}
-        existingTasks={tasks}
+        existingTasks={cpmResult.tasks}
+        scheduleMode={scheduleMode}
+        customHolidays={customHolidays}
         defaultPredecessors={pendingPredecessors}
       />
 

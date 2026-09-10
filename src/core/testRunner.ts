@@ -71,6 +71,35 @@ console.log('Anchored Parts Task date:', partsTask.startDate);
 console.assert(partsTask.startDate === '2026-09-07', `Expected 2026-09-07 but got ${partsTask.startDate}`);
 console.assert(partsTask.finishDate === '2026-09-07', `Expected 2026-09-07 but got ${partsTask.finishDate}`);
 
+// Test User scenario: T8 SMT preceded by upstream tasks (ES=22, 2026-10-01) and T13 material anchored 7 days before
+const userScenarioTasks: Task[] = [
+  { id: 'T_PREV', name: 'Design & Dev', duration: 22, predecessors: [] },
+  { id: 'T8', name: 'SMT', duration: 1, predecessors: ['T_PREV', 'T13'] },
+  {
+    id: 'T13',
+    name: 'material',
+    duration: 1,
+    predecessors: [],
+    anchor: {
+      enabled: true,
+      targetTaskId: 'T8',
+      leadDays: 7,
+      useWorkingDays: true,
+    },
+  },
+];
+const cpmUser = calculateCPM(userScenarioTasks, '2026-09-01', 'working', []);
+const t8Task = cpmUser.tasks.find(t => t.id === 'T8')!;
+const t13Task = cpmUser.tasks.find(t => t.id === 'T13')!;
+
+console.log('\nUser Scenario:');
+console.log('T8 SMT:', t8Task.startDate, 'ES:', t8Task.earlyStart);
+console.log('T13 material:', t13Task.startDate, '~', t13Task.finishDate, 'ES:', t13Task.earlyStart);
+console.assert(t8Task.startDate === '2026-10-01', `Expected T8 at 2026-10-01 but got ${t8Task.startDate}`);
+console.assert(t13Task.finishDate === '2026-09-22', `Expected T13 finish at 2026-09-22 but got ${t13Task.finishDate}`);
+console.assert(t13Task.startDate === '2026-09-22', `Expected T13 start at 2026-09-22 but got ${t13Task.startDate}`);
+console.assert(t13Task.earlyStart === 15, `Expected T13 ES=15 but got ${t13Task.earlyStart}`);
+
 console.log('All Calendar & Reverse Anchor Tests Passed Successfully! 🎉');
 
 
