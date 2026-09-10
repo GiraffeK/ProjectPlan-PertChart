@@ -1128,7 +1128,7 @@ export const PertChart: React.FC<PertChartProps> = ({
                 isMilestone
                   ? 'rounded-xl border-[3.5px] border-double'
                   : isSummary
-                  ? 'rounded-lg border-2 border-dashed'
+                  ? 'rounded-lg border-[2px]'
                   : 'rounded-lg border'
               } ${
                 draggingTaskId === task.id
@@ -1148,7 +1148,7 @@ export const PertChart: React.FC<PertChartProps> = ({
                   : isSummary
                   ? isCritical
                     ? 'border-red-600 bg-red-50/90 shadow-sm'
-                    : 'border-slate-700 bg-slate-100/90 shadow-sm'
+                    : 'border-slate-600 bg-slate-200/95 shadow-sm'
                   : isCritical
                   ? 'border-red-500 bg-slate-200/90 shadow-sm shadow-red-200/60'
                   : 'border-slate-400 bg-slate-200/90 shadow-2xs hover:border-slate-500 hover:shadow-sm'
@@ -1207,6 +1207,8 @@ export const PertChart: React.FC<PertChartProps> = ({
                       : 'rounded-lg border-amber-200/80'
                     : isSubtaskOfSelected
                     ? 'rounded-md border-indigo-200/80 bg-indigo-50/20'
+                    : isSummary
+                    ? 'rounded-md border-slate-300 bg-slate-50/50'
                     : 'rounded-md border-slate-300'
                 }`}
               >
@@ -1223,6 +1225,8 @@ export const PertChart: React.FC<PertChartProps> = ({
                           ? 'bg-red-50/40 text-red-950 font-bold'
                           : isSubtaskOfSelected
                           ? 'bg-indigo-50/30 text-slate-900'
+                          : isSummary
+                          ? 'bg-slate-100/90 text-slate-900 font-bold'
                           : 'text-slate-800'
                       }`}
                     >
