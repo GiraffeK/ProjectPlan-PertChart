@@ -642,6 +642,8 @@ export function App() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         handleSaveProject(true);
+      } else if (e.key === 'Escape') {
+        setSelectedTaskIds(new Set());
       }
     };
     window.addEventListener('keydown', handleKeyDown);

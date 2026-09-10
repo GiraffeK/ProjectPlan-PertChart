@@ -130,6 +130,8 @@ export const PertChart: React.FC<PertChartProps> = ({
   const draggedTasksRef = useRef<Array<{ id: string; initialX: number; initialY: number }>>([]);
   const dragStartMouseCanvasRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const dragMovedRef = useRef<boolean>(false);
+  const canvasMouseDownPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const hasCanvasPannedRef = useRef<boolean>(false);
 
   // Find which tasks are covered by the current drawing / marquee box
   const coveredTaskIds = useMemo(() => {
@@ -272,6 +274,26 @@ export const PertChart: React.FC<PertChartProps> = ({
     computeAutoLayout(false);
   }, [tasks]);
 
+  // Global Escape key listener to clear task selection and cancel drawing mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (selectedTaskIds && selectedTaskIds.size > 0) {
+          onSelectTaskIds?.(new Set());
+        }
+        if (isDrawingMode) {
+          setIsDrawingMode(false);
+        }
+        if (drawStart) {
+          setDrawStart(null);
+          setDrawCurrent(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedTaskIds, isDrawingMode, drawStart, onSelectTaskIds]);
+
   // Handle canvas mouse down
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0 || draggingTaskId || centerPressRef.current) return;
@@ -287,6 +309,9 @@ export const PertChart: React.FC<PertChartProps> = ({
       setDrawCurrent({ x: e.clientX, y: e.clientY });
       return;
     }
+
+    canvasMouseDownPosRef.current = { x: e.clientX, y: e.clientY };
+    hasCanvasPannedRef.current = false;
 
     // Otherwise pan canvas
     setIsPanning(true);
@@ -464,6 +489,13 @@ export const PertChart: React.FC<PertChartProps> = ({
       setDrawCurrent({ x: e.clientX, y: e.clientY });
     } else if (isPanning) {
       // 3. If panning canvas
+      const dist = Math.hypot(
+        e.clientX - canvasMouseDownPosRef.current.x,
+        e.clientY - canvasMouseDownPosRef.current.y
+      );
+      if (dist > 5) {
+        hasCanvasPannedRef.current = true;
+      }
       setTransform(prev => ({
         ...prev,
         x: e.clientX - startPan.x,
@@ -554,10 +586,22 @@ export const PertChart: React.FC<PertChartProps> = ({
           }
           setIsDrawingMode(false);
         }
+      } else {
+        // Simple click without drag in drawing mode: deselect any selected task
+        onSelectTaskIds?.(new Set());
       }
 
       setDrawStart(null);
       setDrawCurrent(null);
+      return;
+    }
+
+    if (isPanning) {
+      setIsPanning(false);
+      // If user clicked on canvas background without panning: deselect any selected task!
+      if (!hasCanvasPannedRef.current) {
+        onSelectTaskIds?.(new Set());
+      }
       return;
     }
 
