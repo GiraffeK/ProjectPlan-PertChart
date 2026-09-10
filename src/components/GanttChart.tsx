@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { Task, ScheduleMode, Holiday } from '../core/types';
 import { formatDateForDisplay, formatDays, getParentBadgeLabel, addDaysToDate } from '../core/cpmEngine';
-import { isNonWorkingDay, getHolidayLabel, getCalendarDayDifference, parseUTCDate } from '../core/calendarEngine';
+import { isNonWorkingDay, getHolidayLabel, getCalendarDayDifference, parseUTCDate, findNextWorkingDay, countWorkingDaysBetween } from '../core/calendarEngine';
 import { TaskContextMenu } from './TaskContextMenu';
 import { Calendar, Filter, ZoomIn, ZoomOut, GitBranch, Trash2, Edit3, X, Anchor } from 'lucide-react';
 
@@ -35,10 +35,12 @@ interface BarDragState {
   taskId: string;
   mode: 'move' | 'resize';
   startClientX: number;
-  initialStartDay: number;
+  initialCalStart: number;
+  initialCalSpan: number;
   initialDuration: number;
-  currentStartDay: number;
+  currentCalStart: number;
   currentDuration: number;
+  deltaDays: number;
 }
 
 export const GanttChart: React.FC<GanttChartProps> = ({
@@ -463,7 +465,9 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       if (toRow === undefined) return;
 
       const toCalStart = task.startDate ? getCalendarDayDifference(projectStartDate, task.startDate) : (task.earlyStart ?? 0);
-      const toX = barDrag?.taskId === task.id ? barDrag.currentStartDay * dayWidth : toCalStart * dayWidth;
+      const toX = barDrag?.taskId === task.id && barDrag.mode === 'move'
+        ? barDrag.currentCalStart * dayWidth
+        : toCalStart * dayWidth;
       const toY = toRow * ROW_HEIGHT + ROW_HEIGHT / 2;
 
       if (!task.predecessors || task.predecessors.length === 0) return;
@@ -479,9 +483,14 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         const pCalFinish = predTask.finishDate ? getCalendarDayDifference(projectStartDate, predTask.finishDate) : (predTask.earlyFinish ?? 0);
         const pSpan = predTask.duration === 0 ? 0 : Math.max(1, pCalFinish - pCalStart + 1);
 
-        const fromX = barDrag?.taskId === predId
-          ? (barDrag.currentStartDay + barDrag.currentDuration) * dayWidth
-          : (pCalStart + pSpan) * dayWidth;
+        let fromX = (pCalStart + pSpan) * dayWidth;
+        if (barDrag?.taskId === predId) {
+          if (barDrag.mode === 'move') {
+            fromX = (barDrag.currentCalStart + pSpan) * dayWidth;
+          } else if (barDrag.mode === 'resize') {
+            fromX = (pCalStart + Math.max(1, pSpan + barDrag.deltaDays)) * dayWidth;
+          }
+        }
         const fromY = predRow * ROW_HEIGHT + ROW_HEIGHT / 2;
 
         const isCriticalEdge = criticalSet.has(predId) && criticalSet.has(task.id) &&
@@ -572,17 +581,21 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     e.stopPropagation();
     e.preventDefault();
 
-    const es = task.earlyStart ?? 0;
+    const calStart = task.startDate ? getCalendarDayDifference(projectStartDate, task.startDate) : (task.earlyStart ?? 0);
+    const calFinish = task.finishDate ? getCalendarDayDifference(projectStartDate, task.finishDate) : ((task.earlyStart ?? 0) + task.duration);
+    const calSpan = task.duration === 0 ? 0 : Math.max(1, calFinish - calStart + 1);
     const dur = task.duration;
 
     const newDrag: BarDragState = {
       taskId: task.id,
       mode,
       startClientX: e.clientX,
-      initialStartDay: es,
+      initialCalStart: calStart,
+      initialCalSpan: calSpan,
       initialDuration: dur,
-      currentStartDay: es,
+      currentCalStart: calStart,
       currentDuration: dur,
+      deltaDays: 0,
     };
 
     setBarDrag(newDrag);
@@ -603,19 +616,19 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       const deltaDays = Math.round(deltaX / dayWidth);
 
       if (cur.mode === 'move') {
-        const newStart = Math.max(0, cur.initialStartDay + deltaDays);
-        if (newStart !== cur.currentStartDay) {
+        const newCalStart = Math.max(0, cur.initialCalStart + deltaDays);
+        if (newCalStart !== cur.currentCalStart || deltaDays !== cur.deltaDays) {
           if (rafId !== null) cancelAnimationFrame(rafId);
           rafId = requestAnimationFrame(() => {
-            setBarDrag(prev => (prev ? { ...prev, currentStartDay: newStart } : null));
+            setBarDrag(prev => (prev ? { ...prev, currentCalStart: newCalStart, deltaDays } : null));
           });
         }
       } else if (cur.mode === 'resize') {
         const newDur = Math.max(1, cur.initialDuration + deltaDays);
-        if (newDur !== cur.currentDuration) {
+        if (newDur !== cur.currentDuration || deltaDays !== cur.deltaDays) {
           if (rafId !== null) cancelAnimationFrame(rafId);
           rafId = requestAnimationFrame(() => {
-            setBarDrag(prev => (prev ? { ...prev, currentDuration: newDur } : null));
+            setBarDrag(prev => (prev ? { ...prev, currentDuration: newDur, deltaDays } : null));
           });
         }
       }
@@ -626,8 +639,14 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       const cur = barDragRef.current;
       if (cur && onUpdateTaskSchedule) {
         if (cur.mode === 'move') {
-          if (cur.currentStartDay !== cur.initialStartDay) {
-            onUpdateTaskSchedule(cur.taskId, { manualEarlyStart: cur.currentStartDay });
+          if (cur.currentCalStart !== cur.initialCalStart) {
+            const newDateStr = addDaysToDate(projectStartDate, cur.currentCalStart);
+            const projFirstWorkDay = findNextWorkingDay(projectStartDate, holidays, scheduleMode);
+            const newEarlyStart = Math.max(
+              0,
+              countWorkingDaysBetween(projFirstWorkDay, newDateStr, holidays, scheduleMode)
+            );
+            onUpdateTaskSchedule(cur.taskId, { manualEarlyStart: newEarlyStart });
           }
         } else if (cur.mode === 'resize') {
           if (cur.currentDuration !== cur.initialDuration) {
@@ -647,7 +666,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [barDrag, dayWidth, onUpdateTaskSchedule]);
+  }, [barDrag, dayWidth, onUpdateTaskSchedule, projectStartDate, holidays, scheduleMode]);
 
   // Handle Task Number (Yellow column) Left Click (supports single, Ctrl-toggle, Shift-range)
   const handleTaskNumberClick = (e: React.MouseEvent, task: Task) => {
@@ -1488,19 +1507,23 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                 const isCrit = criticalSet.has(task.id);
                 const isDraggingThis = barDrag?.taskId === task.id;
 
-                const es = isDraggingThis ? barDrag.currentStartDay : (task.earlyStart ?? 0);
-                const duration = isDraggingThis ? barDrag.currentDuration : task.duration;
-                const ef = es + duration;
+                const duration = isDraggingThis && barDrag.mode === 'resize' ? barDrag.currentDuration : task.duration;
                 const float = task.totalFloat ?? 0;
 
                 // Calendar-accurate positioning based on task.startDate & finishDate
-                const calStart = task.startDate ? getCalendarDayDifference(projectStartDate, task.startDate) : es;
-                const calFinish = task.finishDate ? getCalendarDayDifference(projectStartDate, task.finishDate) : ef;
+                const calStart = task.startDate ? getCalendarDayDifference(projectStartDate, task.startDate) : (task.earlyStart ?? 0);
+                const calFinish = task.finishDate ? getCalendarDayDifference(projectStartDate, task.finishDate) : ((task.earlyStart ?? 0) + task.duration);
                 const calSpan = task.duration === 0 ? 0 : Math.max(1, calFinish - calStart + 1);
 
-                const barLeft = isDraggingThis ? es * dayWidth : calStart * dayWidth;
-                const barWidth = isDraggingThis
-                  ? Math.max(duration * dayWidth, 14)
+                const currentCalStart = isDraggingThis && barDrag.mode === 'move' ? barDrag.currentCalStart : calStart;
+                const es = isDraggingThis && barDrag.mode === 'move'
+                  ? Math.max(0, countWorkingDaysBetween(findNextWorkingDay(projectStartDate, holidays, scheduleMode), addDaysToDate(projectStartDate, barDrag.currentCalStart), holidays, scheduleMode))
+                  : (task.earlyStart ?? 0);
+                const ef = es + duration;
+
+                const barLeft = currentCalStart * dayWidth;
+                const barWidth = isDraggingThis && barDrag.mode === 'resize'
+                  ? Math.max((calSpan + barDrag.deltaDays) * dayWidth, 14)
                   : task.duration === 0
                   ? 16
                   : Math.max(calSpan * dayWidth, 14);
@@ -1612,7 +1635,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                         {/* Drag tooltip indicator */}
                         {isDraggingThis && (
                           <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] font-mono px-2 py-0.5 rounded shadow-lg whitespace-nowrap pointer-events-none z-40 border border-slate-700 animate-in fade-in">
-                            里程碑移至: Day {es}
+                            里程碑移至: {formatDateForDisplay(addDaysToDate(projectStartDate, currentCalStart))} (Day {es})
                           </div>
                         )}
                       </div>
@@ -1658,8 +1681,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                         {isDraggingThis && (
                           <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] font-mono px-2 py-0.5 rounded shadow-lg whitespace-nowrap pointer-events-none z-40 border border-slate-700 animate-in fade-in">
                             {barDrag.mode === 'move'
-                              ? `開始: Day ${es}`
-                              : `工期: ${duration} 天`}
+                              ? `開始: ${formatDateForDisplay(addDaysToDate(projectStartDate, currentCalStart))} (Day ${es})`
+                              : `工期: ${barDrag.currentDuration} 天`}
                           </div>
                         )}
                       </div>
