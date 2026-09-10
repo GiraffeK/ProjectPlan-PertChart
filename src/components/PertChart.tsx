@@ -1340,15 +1340,19 @@ export const PertChart: React.FC<PertChartProps> = ({
                                 </button>
                                 <button
                                   type="button"
-                                  title="減少工期 (-1天)"
+                                  title={task.duration <= 0 ? "已是里程碑 (0天)" : "減少工期 (-1天)"}
+                                  disabled={task.duration <= 0}
                                   onClick={e => {
                                     e.stopPropagation();
                                     const cur = typeof task.duration === 'number' ? task.duration : 1;
-                                    const min = isMilestone ? 0 : 1;
-                                    onUpdateTaskDuration(task.id, Math.max(min, cur - 1));
+                                    onUpdateTaskDuration(task.id, Math.max(0, cur - 1));
                                   }}
                                   onMouseDown={e => e.stopPropagation()}
-                                  className="flex-1 flex items-center justify-center hover:bg-blue-600 hover:text-white text-slate-600 active:bg-blue-700 transition-colors cursor-pointer"
+                                  className={`flex-1 flex items-center justify-center transition-colors ${
+                                    task.duration <= 0
+                                      ? 'opacity-30 text-slate-400 cursor-not-allowed'
+                                      : 'hover:bg-blue-600 hover:text-white text-slate-600 active:bg-blue-700 cursor-pointer'
+                                  }`}
                                 >
                                   <ChevronDown size={12} strokeWidth={2.5} />
                                 </button>

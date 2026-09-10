@@ -624,7 +624,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           });
         }
       } else if (cur.mode === 'resize') {
-        const newDur = Math.max(1, cur.initialDuration + deltaDays);
+        const newDur = Math.max(0, cur.initialDuration + deltaDays);
         if (newDur !== cur.currentDuration || deltaDays !== cur.deltaDays) {
           if (rafId !== null) cancelAnimationFrame(rafId);
           rafId = requestAnimationFrame(() => {
