@@ -36,6 +36,7 @@ interface PertChartProps {
   onRemoveDependency?: (fromId: string, toId: string) => void;
   onCreateTaskAt?: (pos: { x: number; y: number }, predecessorId?: string) => void;
   onUpdateTaskPosition?: (taskId: string, x: number, y: number) => void;
+  onUpdateTaskPositions?: (updates: Array<{ id: string; x: number; y: number }>) => void;
   onPositionsChange?: (positions: Map<string, NodePosition>) => void;
   onTransformChange?: (transform: { x: number; y: number; scale: number }) => void;
   initialTransform?: { x: number; y: number; scale: number };
@@ -60,6 +61,7 @@ export const PertChart: React.FC<PertChartProps> = ({
   onRemoveDependency,
   onCreateTaskAt,
   onUpdateTaskPosition,
+  onUpdateTaskPositions,
   onPositionsChange,
   onTransformChange,
   initialTransform,
@@ -123,6 +125,44 @@ export const PertChart: React.FC<PertChartProps> = ({
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null);
   const [drawCurrent, setDrawCurrent] = useState<{ x: number; y: number } | null>(null);
+
+  // Multi-node dragging state
+  const draggedTasksRef = useRef<Array<{ id: string; initialX: number; initialY: number }>>([]);
+  const dragStartMouseCanvasRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const dragMovedRef = useRef<boolean>(false);
+
+  // Find which tasks are covered by the current drawing / marquee box
+  const coveredTaskIds = useMemo(() => {
+    if (!drawStart || !drawCurrent || !containerRef.current) return [];
+    const rect = containerRef.current.getBoundingClientRect();
+    const screenMinX = Math.min(drawStart.x, drawCurrent.x);
+    const screenMaxX = Math.max(drawStart.x, drawCurrent.x);
+    const screenMinY = Math.min(drawStart.y, drawCurrent.y);
+    const screenMaxY = Math.max(drawStart.y, drawCurrent.y);
+
+    const dragDist = Math.hypot(drawCurrent.x - drawStart.x, drawCurrent.y - drawStart.y);
+    if (dragDist < 10) return [];
+
+    const boxMinX = (screenMinX - rect.left - transform.x) / transform.scale;
+    const boxMaxX = (screenMaxX - rect.left - transform.x) / transform.scale;
+    const boxMinY = (screenMinY - rect.top - transform.y) / transform.scale;
+    const boxMaxY = (screenMaxY - rect.top - transform.y) / transform.scale;
+
+    const covered: string[] = [];
+    positions.forEach((pos, taskId) => {
+      const taskMinX = pos.x;
+      const taskMaxX = pos.x + pos.width;
+      const taskMinY = pos.y;
+      const taskMaxY = pos.y + pos.height;
+
+      // Check intersection with task box
+      if (taskMinX < boxMaxX && taskMaxX > boxMinX && taskMinY < boxMaxY && taskMaxY > boxMinY) {
+        covered.push(taskId);
+      }
+    });
+
+    return covered;
+  }, [drawStart, drawCurrent, transform, positions]);
 
   // Fast lookups
   const taskMap = useMemo(() => {
@@ -270,6 +310,8 @@ export const PertChart: React.FC<PertChartProps> = ({
     if (e.button !== 0) return;
     e.stopPropagation();
 
+    const isAlreadySelected = !!selectedTaskIds?.has(taskId);
+
     // Select the task immediately upon clicking/pressing border
     if (onSelectTaskIds) {
       if (e.ctrlKey || e.metaKey) {
@@ -280,7 +322,7 @@ export const PertChart: React.FC<PertChartProps> = ({
           next.add(taskId);
         }
         onSelectTaskIds(next);
-      } else {
+      } else if (!isAlreadySelected) {
         onSelectTaskIds(new Set([taskId]));
       }
     }
@@ -289,11 +331,26 @@ export const PertChart: React.FC<PertChartProps> = ({
     if (pos) {
       setDraggingTaskId(taskId);
       draggingTaskIdRef.current = taskId;
+      dragMovedRef.current = false;
+
       const rect = containerRef.current?.getBoundingClientRect();
       const containerLeft = rect ? rect.left : 0;
       const containerTop = rect ? rect.top : 0;
       const mouseCanvasX = (e.clientX - containerLeft - transform.x) / transform.scale;
       const mouseCanvasY = (e.clientY - containerTop - transform.y) / transform.scale;
+
+      dragStartMouseCanvasRef.current = { x: mouseCanvasX, y: mouseCanvasY };
+
+      // If this task was part of a multi-selection, drag ALL selected tasks together!
+      const tasksToDrag = (isAlreadySelected && selectedTaskIds && selectedTaskIds.size > 1)
+        ? Array.from(selectedTaskIds)
+        : [taskId];
+
+      draggedTasksRef.current = tasksToDrag.map(id => {
+        const p = positions.get(id);
+        return { id, initialX: p?.x ?? 0, initialY: p?.y ?? 0 };
+      });
+
       const offset = {
         x: mouseCanvasX - pos.x,
         y: mouseCanvasY - pos.y,
@@ -303,22 +360,25 @@ export const PertChart: React.FC<PertChartProps> = ({
     }
   };
 
-  // High-performance window-level mouse move & up listeners while dragging a task node
+  // High-performance window-level mouse move & up listeners while dragging task node(s)
   useEffect(() => {
     if (!draggingTaskId) return;
 
     let rafId: number | null = null;
 
     const onWindowMouseMove = (e: MouseEvent) => {
-      const taskId = draggingTaskIdRef.current;
-      if (!taskId || !containerRef.current) return;
+      if (!draggingTaskIdRef.current || !containerRef.current) return;
 
       const rect = containerRef.current.getBoundingClientRect();
       const mouseCanvasX = (e.clientX - rect.left - transformRef.current.x) / transformRef.current.scale;
       const mouseCanvasY = (e.clientY - rect.top - transformRef.current.y) / transformRef.current.scale;
 
-      const newX = Math.round(mouseCanvasX - dragOffsetRef.current.x);
-      const newY = Math.round(mouseCanvasY - dragOffsetRef.current.y);
+      const deltaX = Math.round(mouseCanvasX - dragStartMouseCanvasRef.current.x);
+      const deltaY = Math.round(mouseCanvasY - dragStartMouseCanvasRef.current.y);
+
+      if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+        dragMovedRef.current = true;
+      }
 
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
@@ -326,12 +386,19 @@ export const PertChart: React.FC<PertChartProps> = ({
 
       rafId = requestAnimationFrame(() => {
         setPositions(prev => {
-          const currentPos = prev.get(taskId);
-          if (!currentPos) return prev;
-          if (currentPos.x === newX && currentPos.y === newY) return prev;
           const next = new Map(prev);
-          next.set(taskId, { ...currentPos, x: newX, y: newY });
-          return next;
+          let hasDiff = false;
+          for (const item of draggedTasksRef.current) {
+            const currentPos = prev.get(item.id);
+            if (!currentPos) continue;
+            const newX = item.initialX + deltaX;
+            const newY = item.initialY + deltaY;
+            if (currentPos.x !== newX || currentPos.y !== newY) {
+              next.set(item.id, { ...currentPos, x: newX, y: newY });
+              hasDiff = true;
+            }
+          }
+          return hasDiff ? next : prev;
         });
       });
     };
@@ -340,16 +407,23 @@ export const PertChart: React.FC<PertChartProps> = ({
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
       }
-      const taskId = draggingTaskIdRef.current;
-      if (taskId) {
-        const finalPos = positionsRef.current.get(taskId);
-        if (finalPos && onUpdateTaskPosition) {
-          onUpdateTaskPosition(taskId, finalPos.x, finalPos.y);
+      if (draggingTaskIdRef.current) {
+        const updates: Array<{ id: string; x: number; y: number }> = [];
+        for (const item of draggedTasksRef.current) {
+          const finalPos = positionsRef.current.get(item.id);
+          if (finalPos) {
+            updates.push({ id: item.id, x: finalPos.x, y: finalPos.y });
+            onUpdateTaskPosition?.(item.id, finalPos.x, finalPos.y);
+          }
+        }
+        if (updates.length > 0 && onUpdateTaskPositions) {
+          onUpdateTaskPositions(updates);
         }
         onPositionsChange?.(positionsRef.current);
       }
       setDraggingTaskId(null);
       draggingTaskIdRef.current = null;
+      draggedTasksRef.current = [];
     };
 
     window.addEventListener('mousemove', onWindowMouseMove, { passive: true });
@@ -362,7 +436,7 @@ export const PertChart: React.FC<PertChartProps> = ({
       window.removeEventListener('mousemove', onWindowMouseMove);
       window.removeEventListener('mouseup', onWindowMouseUp);
     };
-  }, [draggingTaskId, onUpdateTaskPosition, onPositionsChange]);
+  }, [draggingTaskId, onUpdateTaskPosition, onUpdateTaskPositions, onPositionsChange]);
 
   const handleMouseMove = (e: React.MouseEvent) => {
     // 1. If dragging connection line from center
@@ -444,31 +518,42 @@ export const PertChart: React.FC<PertChartProps> = ({
       return;
     }
 
-    // 2. If we were drawing a task frame
+    // 2. If we were drawing a task frame / marquee selecting
     if (drawStart && drawCurrent) {
-      const rect = containerRef.current?.getBoundingClientRect();
-      const containerLeft = rect ? rect.left : 0;
-      const containerTop = rect ? rect.top : 0;
-
-      const screenMinX = Math.min(drawStart.x, drawCurrent.x);
-      const screenMinY = Math.min(drawStart.y, drawCurrent.y);
-
-      // Convert to canvas coordinates
-      const canvasX = Math.round((screenMinX - containerLeft - transform.x) / transform.scale);
-      const canvasY = Math.round((screenMinY - containerTop - transform.y) / transform.scale);
-
       const dragDistance = Math.hypot(
         drawCurrent.x - drawStart.x,
         drawCurrent.y - drawStart.y
       );
 
-      // ONLY create task if user actually dragged a box with meaningful distance (> 20px)!
-      // Never trigger on simple clicks (which happens if clicking toolbar or canvas without drag)
-      if (dragDistance > 20) {
-        if (onCreateTaskAt) {
-          onCreateTaskAt({ x: canvasX, y: canvasY });
+      // ONLY handle if user actually dragged a box with meaningful distance (> 15px)!
+      if (dragDistance > 15) {
+        if (coveredTaskIds.length > 0) {
+          // If the box covered existing tasks (e.g. Kick off and rfq), user wants to select them to move/reposition!
+          if (e.shiftKey && selectedTaskIds && selectedTaskIds.size > 0) {
+            const next = new Set(selectedTaskIds);
+            coveredTaskIds.forEach(id => next.add(id));
+            onSelectTaskIds?.(next);
+          } else {
+            onSelectTaskIds?.(new Set(coveredTaskIds));
+          }
+          setIsDrawingMode(false);
+        } else if (isDrawingMode) {
+          // Empty space and in drawing mode: create a new task at this position
+          const rect = containerRef.current?.getBoundingClientRect();
+          const containerLeft = rect ? rect.left : 0;
+          const containerTop = rect ? rect.top : 0;
+
+          const screenMinX = Math.min(drawStart.x, drawCurrent.x);
+          const screenMinY = Math.min(drawStart.y, drawCurrent.y);
+
+          const canvasX = Math.round((screenMinX - containerLeft - transform.x) / transform.scale);
+          const canvasY = Math.round((screenMinY - containerTop - transform.y) / transform.scale);
+
+          if (onCreateTaskAt) {
+            onCreateTaskAt({ x: canvasX, y: canvasY });
+          }
+          setIsDrawingMode(false);
         }
-        setIsDrawingMode(false);
       }
 
       setDrawStart(null);
@@ -734,20 +819,31 @@ export const PertChart: React.FC<PertChartProps> = ({
         </button>
       </div>
 
-      {/* Live Drawing Box Overlay */}
+      {/* Live Drawing / Selection Box Overlay */}
       {drawStart && drawCurrent && (
         <div
           style={{
             position: 'fixed',
             left: Math.min(drawStart.x, drawCurrent.x),
             top: Math.min(drawStart.y, drawCurrent.y),
-            width: Math.max(Math.abs(drawCurrent.x - drawStart.x), 30),
-            height: Math.max(Math.abs(drawCurrent.y - drawStart.y), 30),
+            width: Math.max(Math.abs(drawCurrent.x - drawStart.x), 20),
+            height: Math.max(Math.abs(drawCurrent.y - drawStart.y), 20),
           }}
-          className="pointer-events-none z-50 border-2 border-dashed border-blue-600 bg-blue-500/15 rounded-lg flex items-center justify-center text-xs font-bold text-blue-700 backdrop-blur-2xs shadow-xl animate-pulse"
+          className={`pointer-events-none z-50 border-2 border-dashed rounded-lg flex items-center justify-center text-xs font-bold backdrop-blur-2xs shadow-xl transition-colors duration-100 ${
+            coveredTaskIds.length > 0
+              ? 'border-indigo-600 bg-indigo-500/20 text-indigo-900'
+              : 'border-blue-600 bg-blue-500/15 text-blue-700 animate-pulse'
+          }`}
         >
-          <div className="bg-white/95 px-2.5 py-1 rounded shadow-sm border border-blue-300 text-blue-800 text-[11px]">
-            鬆開滑鼠建立新任務框
+          <div className="bg-white/95 px-2.5 py-1 rounded shadow-sm border border-slate-300 text-[11px] font-bold flex items-center space-x-1.5">
+            {coveredTaskIds.length > 0 ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-indigo-600 animate-ping" />
+                <span className="text-indigo-900">已框選 {coveredTaskIds.length} 個工作項目 (鬆開以選取並可整批移動)</span>
+              </>
+            ) : (
+              <span className="text-blue-800">鬆開滑鼠建立新工作項目</span>
+            )}
           </div>
         </div>
       )}
@@ -857,7 +953,7 @@ export const PertChart: React.FC<PertChartProps> = ({
           const isCritical = criticalSet.has(task.id);
           const isTargetHover = targetHoverId === task.id;
           const isSourceDragging = connectionDrag?.fromId === task.id;
-          const isSelected = !!selectedTaskIds?.has(task.id);
+          const isSelected = !!selectedTaskIds?.has(task.id) || coveredTaskIds.includes(task.id);
           const isSubtaskOfSelected = !isSelected && selectedParentSubtaskIds.has(task.id);
 
           return (
@@ -869,11 +965,13 @@ export const PertChart: React.FC<PertChartProps> = ({
                 top: `${pos.y}px`,
                 width: `${pos.width}px`,
                 minHeight: showDetailedBox ? '110px' : `${pos.height}px`,
-                willChange: draggingTaskId === task.id ? 'left, top' : 'auto',
+                willChange: (draggingTaskId === task.id || (selectedTaskIds?.has(task.id) && !!draggingTaskId)) ? 'left, top' : 'auto',
               }}
               onMouseDown={e => handleBorderMouseDown(e, task.id)}
               onClick={e => {
                 e.stopPropagation();
+                // If user just finished dragging node(s), do not collapse multi-selection on click!
+                if (dragMovedRef.current) return;
                 if (onSelectTaskIds) {
                   if (e.ctrlKey || e.metaKey) {
                     const next = new Set(selectedTaskIds || []);

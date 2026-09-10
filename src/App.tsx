@@ -664,6 +664,19 @@ export function App() {
     );
   };
 
+  const handleUpdateTaskPositions = (updates: Array<{ id: string; x: number; y: number }>) => {
+    updates.forEach(u => {
+      pertPositionsRef.current.set(u.id, { x: u.x, y: u.y, width: 190, height: 80 });
+    });
+    const updateMap = new Map(updates.map(u => [u.id, u]));
+    setTasks(prev =>
+      prev.map(t => {
+        const u = updateMap.get(t.id);
+        return u ? { ...t, x: u.x, y: u.y } : t;
+      })
+    );
+  };
+
   // Handle Save Task (Create or Update)
   const handleSaveTask = (taskData: Partial<Task>) => {
     pushHistory();
@@ -1348,6 +1361,7 @@ export function App() {
             onRemoveDependency={handleRemoveDependency}
             onCreateTaskAt={handleCreateTaskAt}
             onUpdateTaskPosition={handleUpdateTaskPosition}
+            onUpdateTaskPositions={handleUpdateTaskPositions}
             onPositionsChange={posMap => {
               pertPositionsRef.current = posMap;
             }}
@@ -1417,6 +1431,7 @@ export function App() {
                 onRemoveDependency={handleRemoveDependency}
                 onCreateTaskAt={handleCreateTaskAt}
                 onUpdateTaskPosition={handleUpdateTaskPosition}
+                onUpdateTaskPositions={handleUpdateTaskPositions}
                 onPositionsChange={posMap => {
                   pertPositionsRef.current = posMap;
                 }}
