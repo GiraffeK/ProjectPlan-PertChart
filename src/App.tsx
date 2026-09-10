@@ -642,13 +642,17 @@ export function App() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         handleSaveProject(true);
+      } else if ((e.key === 'Delete' || e.key === 'Del') && selectedTaskIds.size > 0) {
+        e.preventDefault();
+        handleDeleteMultipleTasks(Array.from(selectedTaskIds));
+        setSelectedTaskIds(new Set());
       } else if (e.key === 'Escape') {
         setSelectedTaskIds(new Set());
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undoStack, redoStack, tasks, projectName, startDate]);
+  }, [undoStack, redoStack, tasks, projectName, startDate, selectedTaskIds]);
 
   // Handle drag-to-draw create task at coordinate (with optional predecessor)
   const handleCreateTaskAt = (pos: { x: number; y: number }, predecessorId?: string) => {
@@ -1374,6 +1378,7 @@ export function App() {
             onIndentTask={handleIndentTask}
             onOutdentTask={handleOutdentTask}
             onDeleteTask={handleDeleteTask}
+            onDeleteMultipleTasks={handleDeleteMultipleTasks}
             onUpdateTaskDuration={(taskId, newDuration) =>
               handleUpdateTaskSchedule(taskId, { duration: newDuration })
             }

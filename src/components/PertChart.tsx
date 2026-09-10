@@ -43,6 +43,7 @@ interface PertChartProps {
   onIndentTask?: (task: Task) => void;
   onOutdentTask?: (task: Task) => void;
   onDeleteTask?: (taskId: string) => void;
+  onDeleteMultipleTasks?: (taskIds: string[]) => void;
   onUpdateTaskDuration?: (taskId: string, duration: number) => void;
 }
 
@@ -68,6 +69,7 @@ export const PertChart: React.FC<PertChartProps> = ({
   onIndentTask,
   onOutdentTask,
   onDeleteTask,
+  onDeleteMultipleTasks,
   onUpdateTaskDuration,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -274,9 +276,26 @@ export const PertChart: React.FC<PertChartProps> = ({
     computeAutoLayout(false);
   }, [tasks]);
 
-  // Global Escape key listener to clear task selection and cancel drawing mode
+  // Global Delete / Escape key listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      if ((e.key === 'Delete' || e.key === 'Del') && selectedTaskIds && selectedTaskIds.size > 0) {
+        e.preventDefault();
+        const ids = Array.from(selectedTaskIds);
+        if (onDeleteMultipleTasks) {
+          onDeleteMultipleTasks(ids);
+        } else if (onDeleteTask) {
+          ids.forEach(id => onDeleteTask(id));
+        }
+        onSelectTaskIds?.(new Set());
+        return;
+      }
+
       if (e.key === 'Escape') {
         if (selectedTaskIds && selectedTaskIds.size > 0) {
           onSelectTaskIds?.(new Set());
@@ -292,7 +311,7 @@ export const PertChart: React.FC<PertChartProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedTaskIds, isDrawingMode, drawStart, onSelectTaskIds]);
+  }, [selectedTaskIds, isDrawingMode, drawStart, onSelectTaskIds, onDeleteMultipleTasks, onDeleteTask]);
 
   // Handle canvas mouse down
   const handleMouseDown = (e: React.MouseEvent) => {
