@@ -448,7 +448,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             <div className="border border-dashed border-slate-200 rounded-xl p-3 bg-slate-50/50 text-xs text-slate-400 flex items-center space-x-2">
               <Anchor size={14} className="text-slate-300 shrink-0" />
               <span>
-                💡 提示：在網絡圖中把此任務連線至後續任務（例如 SMT）後，即可勾選以此後續任務之起始日自動往前倒推完成日期。
+                💡 提示：在網絡圖中把此任務連線至後續任務後，即可勾選以此後續任務之起始日倒推完成日。
               </span>
             </div>
           )}
