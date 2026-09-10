@@ -14,6 +14,7 @@ import {
   Indent,
   ChevronUp,
   ChevronDown,
+  Anchor,
 } from 'lucide-react';
 
 export interface NodePosition {
@@ -570,6 +571,46 @@ export const PertChart: React.FC<PertChartProps> = ({
           </g>
         );
       });
+
+      // Render Reverse Anchor connection line (from anchored task to target task)
+      if (task.anchor && task.anchor.enabled && task.anchor.targetTaskId) {
+        const targetPos = positions.get(task.anchor.targetTaskId);
+        const sourcePos = positions.get(task.id);
+        if (sourcePos && targetPos) {
+          const startX = sourcePos.x + sourcePos.width;
+          const startY = sourcePos.y + sourcePos.height / 2;
+          const endX = targetPos.x;
+          const endY = targetPos.y + targetPos.height / 2;
+          const dx = Math.max(40, (endX - startX) * 0.5);
+          const pathData = `M ${startX} ${startY} C ${startX + dx} ${startY}, ${endX - dx} ${endY}, ${endX} ${endY}`;
+          const anchorEdgeKey = `anchor-${task.id}-${task.anchor.targetTaskId}`;
+
+          edges.push(
+            <g key={anchorEdgeKey} className="group/anchor-edge">
+              <path
+                d={pathData}
+                fill="none"
+                stroke="transparent"
+                strokeWidth="20"
+                style={{ pointerEvents: 'stroke' }}
+                className="cursor-pointer"
+              >
+                <title>{`⚓ 反向錨定關聯：[${task.id}] 鎖定於 [${task.anchor.targetTaskId}] 開始前 ${task.anchor.leadDays} ${task.anchor.useWorkingDays !== false ? '個工作天' : '天'}`}</title>
+              </path>
+              <path
+                d={pathData}
+                fill="none"
+                stroke="#6366f1"
+                strokeWidth="2.5"
+                strokeDasharray="5 3"
+                markerEnd="url(#arrow-anchor)"
+                style={{ pointerEvents: 'stroke' }}
+                className="transition-all duration-150 group-hover/anchor-edge:stroke-indigo-800 group-hover/anchor-edge:stroke-[3.5px]"
+              />
+            </g>
+          );
+        }
+      }
     });
 
     return edges;
@@ -756,6 +797,18 @@ export const PertChart: React.FC<PertChartProps> = ({
           >
             <path d="M 0 1 L 10 5 L 0 9 z" fill="#2563eb" />
           </marker>
+          {/* Reverse Anchor arrow (Indigo dashed) */}
+          <marker
+            id="arrow-anchor"
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="7"
+            markerHeight="7"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#6366f1" />
+          </marker>
         </defs>
 
         {renderEdges()}
@@ -904,6 +957,19 @@ export const PertChart: React.FC<PertChartProps> = ({
                     )}`}
                   >
                     {task.category}
+                  </span>
+                </div>
+              )}
+
+              {/* Reverse Anchor Badge (e.g. 齊料日 ⚓ 錨定 SMT) */}
+              {task.anchor && task.anchor.enabled && task.anchor.targetTaskId && (
+                <div
+                  className="absolute -top-3.5 right-1.5 z-15 pointer-events-none"
+                  title={`⚓ 反向錨定至 [${task.anchor.targetTaskId}]：提前 ${task.anchor.leadDays} ${task.anchor.useWorkingDays !== false ? '個工作天' : '天'} 完成\n當目標任務順延時，此任務將自動同步推遲`}
+                >
+                  <span className="inline-flex items-center space-x-1 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-600 text-white border border-indigo-400 shadow-md animate-in zoom-in-90 duration-150">
+                    <Anchor size={11} className="shrink-0" />
+                    <span>錨定 [{task.anchor.targetTaskId}] -{task.anchor.leadDays}d</span>
                   </span>
                 </div>
               )}

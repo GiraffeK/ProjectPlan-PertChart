@@ -3,7 +3,7 @@ import type { Task, ScheduleMode, Holiday } from '../core/types';
 import { formatDateForDisplay, formatDays, getParentBadgeLabel, addDaysToDate } from '../core/cpmEngine';
 import { isNonWorkingDay, getHolidayLabel, getCalendarDayDifference, parseUTCDate } from '../core/calendarEngine';
 import { TaskContextMenu } from './TaskContextMenu';
-import { Calendar, Filter, ZoomIn, ZoomOut, GitBranch, Trash2, Edit3, X } from 'lucide-react';
+import { Calendar, Filter, ZoomIn, ZoomOut, GitBranch, Trash2, Edit3, X, Anchor } from 'lucide-react';
 
 interface GanttChartProps {
   tasks: Task[];
@@ -1590,6 +1590,20 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                       >
                         {task.name}
                       </span>
+                    )}
+
+                    {/* Reverse Anchor Tag on Gantt Bar */}
+                    {task.anchor && task.anchor.enabled && task.anchor.targetTaskId && !isDraggingThis && (
+                      <div
+                        style={{
+                          left: `${barLeft + (task.duration === 0 ? 12 : barWidth + 4)}px`,
+                        }}
+                        className="absolute flex items-center space-x-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/90 px-1.5 py-0.5 rounded-md shadow-2xs pointer-events-none z-15 whitespace-nowrap"
+                        title={`⚓ 倒推錨定至 [${task.anchor.targetTaskId}]：提前 ${task.anchor.leadDays} ${task.anchor.useWorkingDays !== false ? '個工作天' : '天'}`}
+                      >
+                        <Anchor size={11} className="text-indigo-600 shrink-0" />
+                        <span>錨定 [{task.anchor.targetTaskId}] -{task.anchor.leadDays}d</span>
+                      </div>
                     )}
                   </div>
                 );

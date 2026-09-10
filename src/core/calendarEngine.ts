@@ -170,6 +170,75 @@ export function addWorkingDays(
 }
 
 /**
+ * Subtract N working days (or calendar days) from a target date
+ */
+export function subtractWorkingDays(
+  targetDateStr: string,
+  days: number,
+  customHolidays: (Holiday | string)[] = [],
+  scheduleMode: ScheduleMode = 'working'
+): string {
+  if (!targetDateStr || days <= 0) return targetDateStr;
+
+  if (scheduleMode === 'calendar') {
+    const d = parseUTCDate(targetDateStr);
+    if (!d) return targetDateStr;
+    d.setUTCDate(d.getUTCDate() - Math.round(days));
+    return formatUTCDate(d);
+  }
+
+  // Working days mode:
+  let cur = parseUTCDate(targetDateStr);
+  if (!cur) return targetDateStr;
+
+  let remaining = Math.round(days);
+  while (remaining > 0) {
+    cur.setUTCDate(cur.getUTCDate() - 1);
+    const curStr = formatUTCDate(cur);
+    if (!isNonWorkingDay(curStr, customHolidays, scheduleMode)) {
+      remaining--;
+    }
+  }
+
+  return formatUTCDate(cur);
+}
+
+/**
+ * Count working days from start date to target date (targetDate - startDate in working days)
+ */
+export function countWorkingDaysBetween(
+  startDateStr: string,
+  targetDateStr: string,
+  customHolidays: (Holiday | string)[] = [],
+  scheduleMode: ScheduleMode = 'working'
+): number {
+  if (!startDateStr || !targetDateStr) return 0;
+  if (scheduleMode === 'calendar') {
+    return getCalendarDayDifference(startDateStr, targetDateStr);
+  }
+
+  const d1 = parseUTCDate(startDateStr);
+  const d2 = parseUTCDate(targetDateStr);
+  if (!d1 || !d2) return 0;
+
+  if (d1.getTime() === d2.getTime()) return 0;
+
+  const isForward = d2.getTime() > d1.getTime();
+  let cur = new Date(d1.getTime());
+  let count = 0;
+
+  while ((isForward && cur.getTime() < d2.getTime()) || (!isForward && cur.getTime() > d2.getTime())) {
+    cur.setUTCDate(cur.getUTCDate() + (isForward ? 1 : -1));
+    const curStr = formatUTCDate(cur);
+    if (!isNonWorkingDay(curStr, customHolidays, scheduleMode)) {
+      count += isForward ? 1 : -1;
+    }
+  }
+
+  return count;
+}
+
+/**
  * Calculate task start and finish dates from projectStartDate and CPM offsets
  *
  * In CPM:

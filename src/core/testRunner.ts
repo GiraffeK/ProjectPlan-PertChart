@@ -39,5 +39,38 @@ const t5 = calculateTaskDates('2026-09-04', 0, 2, [], 'calendar');
 console.log('Test 5 (Calendar mode 2 days):', t5);
 console.assert(t5.startDate === '2026-09-04' && t5.finishDate === '2026-09-05', 'Test 5 Failed');
 
-console.log('All Calendar Engine Tests Passed Successfully! 🎉');
+console.log('\n--- Testing Plan 2: Reverse Anchored Tasks (JIT / 倒推齊料日) ---');
+import type { Task } from './types';
+
+const testTasks: Task[] = [
+  { id: 'T_SMT', name: 'SMT 打樣', duration: 3, predecessors: [] },
+  {
+    id: 'T_PARTS',
+    name: '備料齊料日',
+    duration: 0,
+    predecessors: [],
+    anchor: {
+      enabled: true,
+      targetTaskId: 'T_SMT',
+      leadDays: 5,
+      useWorkingDays: true,
+    },
+  },
+];
+
+// Project starts on Monday 2026-09-14.
+// T_SMT starts on 2026-09-14 (Monday).
+// T_PARTS is anchored to T_SMT with 5 working days lead time.
+// Stepping backwards 5 working days from 2026-09-14: Fri 09-11, Thu 09-10, Wed 09-09, Tue 09-08, Mon 09-07.
+const cpmTest = calculateCPM(testTasks, '2026-09-14', 'working', []);
+const smtTask = cpmTest.tasks.find(t => t.id === 'T_SMT')!;
+const partsTask = cpmTest.tasks.find(t => t.id === 'T_PARTS')!;
+
+console.log('SMT Task dates:', smtTask.startDate, '~', smtTask.finishDate);
+console.log('Anchored Parts Task date:', partsTask.startDate);
+console.assert(partsTask.startDate === '2026-09-07', `Expected 2026-09-07 but got ${partsTask.startDate}`);
+console.assert(partsTask.finishDate === '2026-09-07', `Expected 2026-09-07 but got ${partsTask.finishDate}`);
+
+console.log('All Calendar & Reverse Anchor Tests Passed Successfully! 🎉');
+
 

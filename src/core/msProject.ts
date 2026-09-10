@@ -169,7 +169,11 @@ export function exportToMSProjectXML(project: ProjectData): string {
       <Name>${escapeXml(task.name)}</Name>
       <Type>0</Type>
       <IsNull>0</IsNull>
-      <CreateDate>${startDateTime}</CreateDate>
+      <CreateDate>${startDateTime}</CreateDate>${
+        task.anchor && task.anchor.enabled && task.anchor.targetTaskId
+          ? `\n      <Notes>${escapeXml(`[Anchor:target=${task.anchor.targetTaskId};lead=${task.anchor.leadDays};work=${task.anchor.useWorkingDays !== false ? 1 : 0}]`)}</Notes>`
+          : ''
+      }
       <WBS>${index + 1}</WBS>
       <OutlineNumber>${index + 1}</OutlineNumber>
       <OutlineLevel>${task.outlineLevel || 1}</OutlineLevel>
@@ -313,6 +317,7 @@ export function parseMSProjectXML(xmlContent: string): {
       duration: number;
       predUids: number[];
       outlineLevel?: number;
+      anchor?: Task['anchor'];
     }> = [];
 
     let validCounter = 1;
@@ -346,8 +351,21 @@ export function parseMSProjectXML(xmlContent: string): {
       const outlineLevelStr = taskEl.querySelector('OutlineLevel')?.textContent?.trim();
       const outlineLevel = outlineLevelStr ? parseInt(outlineLevelStr, 10) : 1;
 
+      // Parse Notes for Anchor tag
+      const notesStr = taskEl.querySelector('Notes')?.textContent?.trim() || '';
+      let anchor: Task['anchor'] = undefined;
+      const anchorMatch = notesStr.match(/\[Anchor:target=([^;]+);lead=(\d+);work=([01])\]/);
+      if (anchorMatch) {
+        anchor = {
+          enabled: true,
+          targetTaskId: anchorMatch[1],
+          leadDays: parseInt(anchorMatch[2], 10) || 7,
+          useWorkingDays: anchorMatch[3] === '1',
+        };
+      }
+
       uidToTaskIdMap.set(uid, id);
-      rawTasks.push({ uid, id, name, duration, predUids, outlineLevel });
+      rawTasks.push({ uid, id, name, duration, predUids, outlineLevel, anchor });
       validCounter++;
     });
 
@@ -363,6 +381,7 @@ export function parseMSProjectXML(xmlContent: string): {
         duration: rt.duration,
         predecessors,
         outlineLevel: rt.outlineLevel,
+        anchor: rt.anchor,
       };
     });
 

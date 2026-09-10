@@ -1,5 +1,5 @@
 import type { Task, ScheduleMode, Holiday } from './types';
-import { calculateTaskDates } from './calendarEngine';
+import { calculateTaskDates, subtractWorkingDays, countWorkingDaysBetween } from './calendarEngine';
 
 export interface CPMCalculationResult {
   tasks: Task[];
@@ -548,6 +548,46 @@ export function calculateCPM(
     );
     task.startDate = startDate;
     task.finishDate = finishDate;
+  }
+
+  // Second Pass for Reverse-Anchored Tasks (e.g. SMT 齊料日)
+  // Anchored tasks derive their finish and start dates backwards from target task's start date
+  for (const task of tasks) {
+    if (task.anchor && task.anchor.enabled && task.anchor.targetTaskId && task.anchor.leadDays > 0) {
+      const target = taskMap.get(task.anchor.targetTaskId);
+      if (target && target.startDate) {
+        const leadDays = task.anchor.leadDays;
+        const useWorkingDays = task.anchor.useWorkingDays !== false;
+
+        // Finish date of anchored task is target.startDate minus leadDays
+        const finishDate = subtractWorkingDays(
+          target.startDate,
+          leadDays,
+          customHolidays,
+          useWorkingDays ? scheduleMode : 'calendar'
+        );
+
+        let startDate = finishDate;
+        if (task.duration > 0) {
+          const additionalDays = Math.max(0, Math.round(task.duration) - 1);
+          startDate = additionalDays === 0
+            ? finishDate
+            : subtractWorkingDays(finishDate, additionalDays, customHolidays, scheduleMode);
+        }
+
+        task.finishDate = finishDate;
+        task.startDate = startDate;
+
+        // Sync earlyStart and earlyFinish offsets relative to projectStartDate
+        const esWorkingDays = countWorkingDaysBetween(projectStartDate, startDate, customHolidays, scheduleMode);
+        task.earlyStart = Math.max(0, esWorkingDays);
+        task.earlyFinish = task.duration === 0 ? task.earlyStart : roundDays(task.earlyStart + task.duration);
+        task.lateStart = task.earlyStart;
+        task.lateFinish = task.earlyFinish;
+        task.totalFloat = 0;
+        task.freeFloat = 0;
+      }
+    }
   }
 
   const criticalPathTaskIds = tasks.filter(t => t.isCritical).map(t => t.id);

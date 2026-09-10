@@ -15,6 +15,13 @@ export interface Dependency {
   lag?: number; // in days
 }
 
+export interface TaskAnchor {
+  enabled: boolean;
+  targetTaskId: string; // The successor task it is anchored to (e.g. SMT task ID)
+  leadDays: number; // Days before the target task starts (e.g. 7 days)
+  useWorkingDays?: boolean; // Whether to subtract working days (true, default) or calendar days (false)
+}
+
 export interface Task {
   id: string;
   uid?: number; // For MS Project UID mapping
@@ -22,6 +29,8 @@ export interface Task {
   duration: number; // in days (integer or decimal)
   category?: string; // e.g. "Research/Learn", "Design", "Coding and Component Testing", "Documentation"
   predecessors: string[]; // List of task IDs this task depends on (Finish-to-Start default)
+  anchor?: TaskAnchor; // Reverse anchor settings (e.g. 齊料日 anchored before SMT start)
+
   
   // WBS / Hierarchy
   outlineLevel?: number; // 1 = root, 2 = subtask, etc. (MS Project compatible)

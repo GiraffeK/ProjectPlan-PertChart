@@ -100,6 +100,14 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                         <span className="w-2 h-2 rounded-full bg-red-600 shrink-0" />
                       )}
                       <span>{task.name}</span>
+                      {task.anchor && task.anchor.enabled && task.anchor.targetTaskId && (
+                        <span
+                          className="inline-flex items-center space-x-1 text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0 ml-1.5"
+                          title={`⚓ 反向錨定至 [${task.anchor.targetTaskId}]：提前 ${task.anchor.leadDays} ${task.anchor.useWorkingDays !== false ? '個工作天' : '天'}`}
+                        >
+                          <span>⚓ 錨定 [{task.anchor.targetTaskId}] -{task.anchor.leadDays}d</span>
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-3 py-2.5 text-slate-500">

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { Task } from '../core/types';
 import { formatDays, getParentBadgeLabel } from '../core/cpmEngine';
-import { X, Trash2, Check } from 'lucide-react';
+import { X, Trash2, Check, Anchor } from 'lucide-react';
 
 interface TaskModalProps {
   isOpen: boolean;
@@ -28,6 +28,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [summaryLabel, setSummaryLabel] = useState('');
   const [predecessors, setPredecessors] = useState<string[]>([]);
   const [inheritedFromParent, setInheritedFromParent] = useState<{ parentName: string; predIds: string[] } | null>(null);
+
+  // Reverse Anchor state (e.g. SMT 齊料日倒推錨定)
+  const [anchorEnabled, setAnchorEnabled] = useState(false);
+  const [anchorTargetTaskId, setAnchorTargetTaskId] = useState('');
+  const [anchorLeadDays, setAnchorLeadDays] = useState(7);
+  const [anchorUseWorkingDays, setAnchorUseWorkingDays] = useState(true);
+
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -36,6 +43,19 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       setDuration(initialTask.duration);
       setCategory(initialTask.category || '');
       setSummaryLabel(initialTask.summaryLabel || '');
+
+      // Initialize anchor state
+      if (initialTask.anchor && initialTask.anchor.enabled) {
+        setAnchorEnabled(true);
+        setAnchorTargetTaskId(initialTask.anchor.targetTaskId || '');
+        setAnchorLeadDays(initialTask.anchor.leadDays || 7);
+        setAnchorUseWorkingDays(initialTask.anchor.useWorkingDays !== false);
+      } else {
+        setAnchorEnabled(false);
+        setAnchorTargetTaskId('');
+        setAnchorLeadDays(7);
+        setAnchorUseWorkingDays(true);
+      }
 
       let initialPreds = initialTask.predecessors || [];
       // Inherit parent's predecessors if this task is the first child of its parent
@@ -64,6 +84,10 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       setSummaryLabel('');
       setPredecessors(defaultPredecessors || []);
       setInheritedFromParent(null);
+      setAnchorEnabled(false);
+      setAnchorTargetTaskId('');
+      setAnchorLeadDays(7);
+      setAnchorUseWorkingDays(true);
     }
 
     if (isOpen) {
@@ -86,6 +110,14 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       category: category.trim() || undefined,
       summaryLabel: summaryLabel.trim() || undefined,
       predecessors,
+      anchor: anchorEnabled && anchorTargetTaskId
+        ? {
+            enabled: true,
+            targetTaskId: anchorTargetTaskId,
+            leadDays: Math.max(1, Number(anchorLeadDays) || 1),
+            useWorkingDays: anchorUseWorkingDays,
+          }
+        : undefined,
     });
     onClose();
   };
@@ -280,6 +312,97 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                 })
               )}
             </div>
+          </div>
+
+          {/* Reverse Anchor Card (e.g. SMT 齊料日倒推錨定) */}
+          <div className="border border-indigo-200 rounded-xl p-3.5 bg-indigo-50/40 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center space-x-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={anchorEnabled}
+                  onChange={e => {
+                    const checked = e.target.checked;
+                    setAnchorEnabled(checked);
+                    if (checked && !anchorTargetTaskId) {
+                      // Pre-select first available candidate task if not chosen
+                      const candidate = existingTasks.find(t => (!initialTask || t.id !== initialTask.id) && !t.isSummary);
+                      if (candidate) setAnchorTargetTaskId(candidate.id);
+                    }
+                  }}
+                  className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                />
+                <span className="text-xs font-bold text-indigo-950 flex items-center space-x-1.5">
+                  <Anchor size={15} className="text-indigo-600" />
+                  <span>⚓ 反向錨定至後續任務 (Reverse Anchor / JIT Task)</span>
+                </span>
+              </label>
+              {anchorEnabled && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
+                  倒推排程
+                </span>
+              )}
+            </div>
+
+            {anchorEnabled && (
+              <div className="pt-2 border-t border-indigo-100/80 grid grid-cols-1 sm:grid-cols-3 gap-3 animate-in fade-in duration-150 text-xs">
+                <div className="sm:col-span-1">
+                  <label className="block text-slate-600 mb-1 font-medium">錨定目標任務 (Target Task)</label>
+                  <select
+                    value={anchorTargetTaskId}
+                    onChange={e => setAnchorTargetTaskId(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium text-slate-800"
+                  >
+                    <option value="">請選擇目標任務...</option>
+                    {existingTasks
+                      .filter(t => !initialTask || t.id !== initialTask.id)
+                      .map(t => (
+                        <option key={t.id} value={t.id}>
+                          [{t.id}] {t.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 mb-1 font-medium">提前天數 (Lead Days)</label>
+                  <div className="flex items-center space-x-1">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={anchorLeadDays}
+                      onChange={e => setAnchorLeadDays(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono font-bold text-slate-800"
+                    />
+                    <span className="text-slate-500 shrink-0">天前完成</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 mb-1 font-medium">計算方式</label>
+                  <select
+                    value={anchorUseWorkingDays ? 'working' : 'calendar'}
+                    onChange={e => setAnchorUseWorkingDays(e.target.value === 'working')}
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium text-slate-800"
+                  >
+                    <option value="working">依工作天倒推 (扣假日)</option>
+                    <option value="calendar">依日曆天倒推</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-3 text-[11px] text-indigo-900 bg-white/70 p-2.5 rounded-lg border border-indigo-100 flex items-center justify-between">
+                  <span>
+                    💡 提示：此任務之完成日將永遠鎖定在目標任務開始前 <strong>{anchorLeadDays}</strong> {anchorUseWorkingDays ? '個工作天' : '天'}。目標任務若延誤順延，此任務亦會自動即時跟隨推遲！
+                  </span>
+                  {initialTask?.startDate && (
+                    <span className="font-mono font-bold text-indigo-700 shrink-0 ml-2 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                      📅 目前日期：{initialTask.startDate}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Footer Actions */}
