@@ -1599,10 +1599,10 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                           left: `${barLeft + (task.duration === 0 ? 12 : barWidth + 4)}px`,
                         }}
                         className="absolute flex items-center space-x-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/90 px-1.5 py-0.5 rounded-md shadow-2xs pointer-events-none z-15 whitespace-nowrap"
-                        title={`⚓ 倒推錨定至 [${task.anchor.targetTaskId}]：提前 ${task.anchor.leadDays} ${task.anchor.useWorkingDays !== false ? '個工作天' : '天'}`}
+                        title={`⚓ 倒推錨定至「${tasks.find(t => t.id === task.anchor?.targetTaskId)?.name || task.anchor.targetTaskId}」：提前 ${task.anchor.leadDays} ${task.anchor.useWorkingDays !== false ? '個工作天' : '天'}`}
                       >
                         <Anchor size={11} className="text-indigo-600 shrink-0" />
-                        <span>錨定 [{task.anchor.targetTaskId}] -{task.anchor.leadDays}d</span>
+                        <span>{tasks.find(t => t.id === task.anchor?.targetTaskId)?.name || task.anchor?.targetTaskId} -{task.anchor?.leadDays}d</span>
                       </div>
                     )}
                   </div>

@@ -595,7 +595,7 @@ export const PertChart: React.FC<PertChartProps> = ({
                 style={{ pointerEvents: 'stroke' }}
                 className="cursor-pointer"
               >
-                <title>{`⚓ 反向錨定關聯：[${task.id}] 鎖定於 [${task.anchor.targetTaskId}] 開始前 ${task.anchor.leadDays} ${task.anchor.useWorkingDays !== false ? '個工作天' : '天'}`}</title>
+                <title>{`⚓ 反向錨定關聯：[${task.id}] 鎖定於「${taskMap.get(task.anchor.targetTaskId)?.name || task.anchor.targetTaskId}」開始前 ${task.anchor.leadDays} ${task.anchor.useWorkingDays !== false ? '個工作天' : '天'}`}</title>
               </path>
               <path
                 d={pathData}
@@ -961,15 +961,15 @@ export const PertChart: React.FC<PertChartProps> = ({
                 </div>
               )}
 
-              {/* Reverse Anchor Badge (e.g. 齊料日 ⚓ 錨定 SMT) */}
+              {/* Reverse Anchor Badge (e.g. 齊料日 ⚓ SMT -11d) */}
               {task.anchor && task.anchor.enabled && task.anchor.targetTaskId && (
                 <div
                   className="absolute -top-3.5 right-1.5 z-15 pointer-events-none"
-                  title={`⚓ 反向錨定至 [${task.anchor.targetTaskId}]：提前 ${task.anchor.leadDays} ${task.anchor.useWorkingDays !== false ? '個工作天' : '天'} 完成\n當目標任務順延時，此任務將自動同步推遲`}
+                  title={`⚓ 反向錨定至「${taskMap.get(task.anchor.targetTaskId)?.name || task.anchor.targetTaskId}」：提前 ${task.anchor.leadDays} ${task.anchor.useWorkingDays !== false ? '個工作天' : '天'} 完成\n當目標任務順延時，此任務將自動同步推遲`}
                 >
                   <span className="inline-flex items-center space-x-1 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-600 text-white border border-indigo-400 shadow-md animate-in zoom-in-90 duration-150">
                     <Anchor size={11} className="shrink-0" />
-                    <span>錨定 [{task.anchor.targetTaskId}] -{task.anchor.leadDays}d</span>
+                    <span>{taskMap.get(task.anchor.targetTaskId)?.name || task.anchor.targetTaskId} -{task.anchor.leadDays}d</span>
                   </span>
                 </div>
               )}
